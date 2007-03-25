@@ -1,0 +1,14 @@
+<!DOCTYPE kpartgui SYSTEM "kpartgui.dtd">
+<kpartgui name="rmc505" version="1">
+<!--<MenuBar>
+  <Menu name="file"><text>&amp;File</text>
+  </Menu>
+</MenuBar>-->
+<ToolBar fullWidth="true" name="mainToolBar">
+  <Action name="reload" />
+  <Action name="snapshot" />
+  <Separator />
+  <Action name="autotrigger" />
+  <Action name="note_trigger" />
+</ToolBar>
+</kpartgui>
