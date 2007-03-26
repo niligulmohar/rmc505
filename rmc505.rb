@@ -45,7 +45,7 @@ class SparseArray
   end
   def add_submap_of_class(cls, offset = 0, *args)
     submap = cls.new(self, offset, *args)
-    yield submap
+    yield submap if block_given?
     @submaps.push([(offset ... offset+submap.length), submap])
     check_overlap!
   end
@@ -55,7 +55,7 @@ class SparseArray
     end
   end
   def map(&element_block)
-    result = cls.new(@parent, @offset)
+    result = self.class.new(@parent, @offset)
     result.elements = @elements.map(&element_block)
     result.submaps = @submaps.map do |range, submap|
       [range, submap.map(&element_block)]
@@ -116,7 +116,7 @@ class ParameterMap < SparseArray
   end
 
   def new_data
-    ParameterData.map do |parameter|
+    map do |parameter|
       ParameterStorage.new(parameter)
     end
   end
@@ -152,13 +152,13 @@ end
 
 class DeviceClass
   class << self
-    def [](name, &block)
+    def [](name)
       @@classes[name]
     end
-    def connection(identity_response, client)
+    def connection(identity_response, port)
       @@classes.values.each do |cls|
         if cls.identity_response_match?(identity_response)
-          return cls.new(identity_response.sysex_channel, client)
+          return cls.new(identity_response.sysex_channel, port)
         end
       end
       return nil
@@ -176,12 +176,12 @@ class DeviceClass
     DeviceConnection.new(self, sysex_channel, port)
   end
   def identity_response_match?(sysex_event)
-    m, f, model, v = MANUFACTURER_ID, FAMILY_CODE, MODEL_NUMBER, VERSION_NUMBER
-    return event.get_variable =~ /^\xf0\x7e.\x06\x02#{m}#{f}#{model}#{v}\xf7$/
+    m, f, model, v = manufacturer_id.chr, family_code, model_number, version_number
+    return sysex_event.variable_data =~ /^\xf0\x7e.\x06\x02#{m}#{f}#{model}#{v}\xf7$/
   end
   def parameter_map(&block)
     if @parameter_map
-      parameter_map
+      @parameter_map
     elsif block_given?
       @parameter_map = ParameterMap.new(&block)
     end
@@ -189,23 +189,25 @@ class DeviceClass
 end
 
 class DeviceConnection
-  def initialize(device_class, sysex_channel, client)
+  def initialize(device_class, sysex_channel, port)
     @device_class = device_class
     @sysex_channel = sysex_channel
-    @client = client
-    @param_data = device_class.parameter_map.new_data
+    @port = port
+    $logger.info("%s(%02x) --> Identity response on %s" % [@device_class.name,
+                                                           @sysex_channel,
+                                                           port.ids])
+    if device_class.parameter_map
+      @parameter_data = device_class.parameter_map.new_data
+    end
   end
   def send_sysex(data)
     $logger.debug("%s(%02x) <-- %s" % [@device_class.name,
                                        @sysex_channel,
                                        data.hexdump])
-    ev = Snd::Seq::Event.new
-    ev.source = @port
-    ev.to_port_subscribers!
-    ev.direct!
-    ev.set_sysex(data)
-    $seq.event_output(ev)
-    $seq.drain_output
+    @port.output_event! do |event|
+      ev.direct!
+      ev.set_sysex(data)
+    end
   end
   def send_read_data_request(start, length)
     send_sysex(@device_class.read_data_request(@sysex_channel, start, length))
@@ -235,7 +237,7 @@ end
 ######################################################################
 
 module RolandSysex
-  MANUFACTURER_ID = 0x41
+  def manufacturer_id() 0x41 end
   def self.checksum(data)
     sum = 0
     data.each_byte { |b| sum += b }
@@ -258,12 +260,21 @@ module RolandSysex
   end
 end
 
-DeviceClass.new('MC-505') do |c|
+DeviceClass.new('PCR-A30') do |c|
   class << c
     include RolandSysex
-    FAMILY_CODE = "\x0b\x01"
-    MODEL_NUMBER = "\x03\x00"
-    VERSION_NUMBER = "\x00\x03\x00\x00"
+    def family_code() "\x62\x01" end
+    def model_number() "\x00\x00" end
+    def version_number() "\x01\x01\x00\x00" end
+  end
+end
+
+DeviceClass.new('D2') do |c|
+  class << c
+    include RolandSysex
+    def family_code() "\x0b\x01" end
+    def model_number() "\x03\x00" end
+    def version_number() "\x00\x03\x00\x00" end
   end
   KEYFOLLOW = %w[-100 -70 -50 -30 -10 0 +10 +20 +30 +40 +50 +70 +100 +120 +150 +200]
   KEYFOLLOW2 = %w[-100 -70 -50 -40 -30 -20 -10 0 +10 +20 +30 +40 +50 +70 +100]
@@ -302,8 +313,7 @@ DeviceClass.new('MC-505') do |c|
         g0.offset(0x01_00_00 * n0, "Patch #{n0 + 1}") do |g1|
           # g1.trigger_channel = n0
           g1.offset(0, 'Common') do |g2|
-            g2.add_submap_of_class(PatchName) do |r|
-            end
+            g2.add_submap_of_class(PatchName)
             g2.offset(0x31) do |r|
               r.param('Bend range up', (0..12))
               r.param('Bend range down', (0..48))
@@ -332,8 +342,7 @@ DeviceClass.new('MC-505') do |c|
               g2.offset(0) do |r|
                 r.param('Tone switch', (0..1), %w[Off On])
               end
-              g2.add_submap_of_class(WaveParameter, 1) do |r|
-              end
+              g2.add_submap_of_class(WaveParameter, 1)
               g2.offset(5) do |r|
                 r.param('Wave gain', (0..3), WAVE_GAIN)
                 r.param('FXM switch', (0..1), %w[Off On])
@@ -437,12 +446,15 @@ end
 
 
 module YamahaSysex
-  MANUFACTURER_ID = 0x43
+  def manufacturer_id() 0x43 end
 end
 
 DeviceClass.new('MU50') do |c|
   class << c
     include YamahaSysex
+    def family_code() "\x00\x41" end
+    def model_number() "\x46\x01" end
+    def version_number() "\x00\x00\x00\x01" end
   end
 end
 
@@ -496,16 +508,12 @@ class MidiInterface
     yield ev
     @seq.event_output(ev)
     @seq.drain_output
-    if ev.sysex?
-      $logger.debug("? <-- #{ev.variable_data.hexdump}")
-    else
-      $logger.debug("? <-- MIDI")
-    end
   end
 
   def identity_request!
     broadcast! do |event|
       event.set_sysex("\xf0\x7e\x7f\x06\x01\xf7")
+      $logger.debug("* <-- Identity request")
     end
   end
 
@@ -514,10 +522,14 @@ class MidiInterface
     while (event = @seq.event_input) do
       if event.sysex?
         if event.identity_response?
-          # TODO: event -> port
-          new_connection = DeviceClass.connection(event, @ports[event.dest])
+          dest_port = Snd::Seq::DestinationPort.new(Snd::Seq::Port.new(@seq, event.source_info), @port)
+          new_connection = DeviceClass.connection(event, dest_port)
           if new_connection
             @connections << new_connection
+          else
+            $logger.warn("? --> Unrecognized identity response (%d bytes)" %
+                         event.variable_data.length)
+            $logger.debug("      #{event.variable_data.hexdump}")
           end
         else
           catch :recognized do
