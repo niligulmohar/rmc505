@@ -1,5 +1,6 @@
 #! /usr/bin/env ruby
 
+$: << File.join(File.dirname(__FILE__), 'asound')
 require 'asound'
 require 'Korundum'
 
@@ -637,7 +638,9 @@ WAVENAMES = ["TB Dst Saw",
   "Gabba Kick",
   "Roll Kick"]
 
-WAVES = (0..253).collect{ |n| '1-%d %s' % [n+1, WAVENAMES[n]] } + (0..250).collect{ |n| '2-%d %s ' % [n+1, WAVENAMES[n+254]] }
+WAVES =
+  (0..253).collect{ |n| '1-%d %s' % [n+1, WAVENAMES[n]] } +
+  (0..250).collect{ |n| '2-%d %s ' % [n+1, WAVENAMES[n+254]] }
 
 class WaveParameter < Qt::Object
   include ParameterRangeMod
@@ -1383,7 +1386,7 @@ about = KDE::AboutData.new('rmc505',
                            '0.0.1',
                            'A Roland MC505/D2 patch editor',
                            KDE::AboutData::License_GPL,
-                           '(C) 2006 Nicklas Lindgren')
+                           '(C) 2006-2007 Nicklas Lindgren')
 about.add_author('Nicklas Lindgren',
                  'Programmer',
                  'nili@lysator.liu.se')
@@ -1396,8 +1399,10 @@ a = KDE::Application.new()
 $seq = Snd::Seq.open
 $seq.client_name = 'rmc505'
 $port = $seq.create_simple_port('Data transfer',
-                                Snd::Seq::PORT_CAP_READ | Snd::Seq::PORT_CAP_SUBS_READ |
-                                  Snd::Seq::PORT_CAP_WRITE | Snd::Seq::PORT_CAP_SUBS_WRITE,
+                                Snd::Seq::PORT_CAP_READ |
+                                Snd::Seq::PORT_CAP_SUBS_READ |
+                                Snd::Seq::PORT_CAP_WRITE |
+                                Snd::Seq::PORT_CAP_SUBS_WRITE,
                                 Snd::Seq::PORT_TYPE_MIDI_GENERIC)
 
 $seq.connect_to($port, 20, 0)
