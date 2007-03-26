@@ -1,8 +1,108 @@
+class PatchEditorPage < Qt::ListViewItem
+  def initialize(editor, data, parent)
+    super(parent)
+    @data = data
+    @editor = editor
+  end
+  def text=(text)
+    set_text(0, text)
+  end
+  def pixmap=(pixmap)
+    set_pixmap(0, pixmap)
+  end
+  def activate
+    @editor.stack.raise_widget(page_widget)
+    @editor.sizes = [200, 600]
+  end
+  def page_widget
+    unless @page_widget
+      @page_widget = Qt::Widget.new(@editor.stack)
+      grid = Qt::GridLayout.new(@page_widget, 1, 1)
+      scroll = Qt::ScrollView.new(@page_widget)
+      grid.add_widget(scroll, 0, 0)
+      @vbox = Qt::VBox.new(scroll.viewport)
+      scroll.add_child(@vbox)
+      scroll.resize_policy = Qt::ScrollView::AutoOneFit
+      scroll.set_margins(5,5,5,5)
+      @editor.build_page(@data, @vbox)
+    end
+    return @page_widget
+  end
+end
+
 class PatchEditor < Qt::Splitter
-  def initialize(*args)
-    super
-    foo0 = Qt::Widget.new(self)
-    foo1 = Qt::Widget.new(self)
+  @@pixmaps = false
+  attr_reader :stack
+  def initialize(connection, *args)
+    unless @@pixmaps
+      @@pixmaps = {}
+      %w[patch tone drum].each do |name|
+        @@pixmaps[name.to_sym] = Qt::Pixmap.new("#{name}.png")
+      end
+    end
+
+    super(*args)
+    @list_view = KDE::ListView.new(self)
+    @list_view.add_column('Page', -1)
+    @list_view.selection_mode = Qt::ListView::Extended
+    @list_view.root_is_decorated = true
+    @list_view.header.hide
+    @list_view.set_sorting(-1)
+
+    @stack = Qt::WidgetStack.new(self)
+
+    @connection = connection
+    build_tree(@connection.parameter_data, @list_view)
+  end
+
+  def build_tree(parameter_data, parent)
+    if parameter_data.map_parent && parameter_data.map_parent.list_entry
+      widget = PatchEditorPage.new(self, parameter_data, parent)
+      widget.text = parameter_data.map_parent.name
+      if parameter_data.map_parent.list_entry.kind_of?(Symbol)
+        if @@pixmaps.has_key?(parameter_data.map_parent.list_entry)
+          widget.pixmap = @@pixmaps[parameter_data.map_parent.list_entry]
+        end
+      end
+      sub_parent = widget
+      unless parameter_data.elements.empty?
+        $logger.debug('params here??')
+      end
+    else
+      sub_parent = parent
+    end
+    parameter_data.submaps.reverse.each do |r, submap|
+      build_tree(submap, sub_parent)
+    end
+  end
+  def build_page(parameter_data, vbox, group_param = nil)
+    if parameter_data.map_parent && parameter_data.map_parent.box
+      group = Qt::GroupBox.new(2, Qt::GroupBox::Horizontal, vbox)
+      group.title = parameter_data.map_parent.name
+    else
+      group = group_param
+    end
+    parameter_data.elements.each do |element|
+      parameter = element.parameter
+      @label = Qt::Label.new(parameter.name, group)
+      box = Qt::HBox.new(group)
+      @slider = Qt::Slider.new(parameter.range.first, parameter.range.last, 1, element.value, Qt::Slider::Horizontal, box)
+      @slider.tick_interval = 1
+      @slider.tickmarks = Qt::Slider::Below
+      @slider.value = element.value
+      #connect(@slider, SIGNAL('valueChanged(int)'), self, SLOT('change(int)'))
+      if parameter.choices
+        @combo = Qt::ComboBox.new(box)
+        @combo.insert_string_list(parameter.choices)
+        @combo.set_current_item(element.value)
+        #connect(@combo, SIGNAL('activated(int)'), @slider, SLOT('setValue(int)'))
+      end
+    end
+    parameter_data.submaps.each do |r, submap|
+      unless submap.map_parent && submap.map_parent.list_entry
+        build_page(submap, vbox, group)
+      end
+    end
   end
 end
 
@@ -61,7 +161,7 @@ class MainWindow < KDE::MainWindow
       midi.new_connection do |connection|
         tab = Qt::Widget.new(self)
         grid = Qt::GridLayout.new(tab, 1, 1)
-        patch_editor = PatchEditor.new(tab)
+        patch_editor = PatchEditor.new(connection, tab)
         grid.add_widget(patch_editor, 0, 0)
         @tabs.add_tab(tab, connection.name)
         if @tabs.current_page_index == 0

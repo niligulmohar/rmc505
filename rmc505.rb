@@ -100,6 +100,7 @@ class ByteParameter
 end
 
 class ParameterStorage
+  attr_reader :parameter, :value
   def initialize(parameter)
     fail unless parameter.kind_of?(ByteParameter)
     @parameter = parameter
@@ -121,14 +122,14 @@ end
 class ParameterData < SparseArray
   attr_accessor :map_parent
   def dump(indentation = 0)
-    if @name
-      $logger.debug("#{'  '*indentation}#{@name}\n")
+    if @map_parent and @map_parent.name
+      $logger.debug("#{'  '*indentation}#{@map_parent.name}")
     end
     @elements.each do |elt|
       elt.dump(indentation)
     end
     @submaps.each do |r, o|
-      $logger.debug("#{'  '*(indentation+1)}(%8x...%8x)\n" % [r.first, r.last])
+      $logger.debug("#{'  '*(indentation+1)}(%8x...%8x)" % [r.first, r.last])
       o.dump(indentation + 1)
     end
   end
@@ -139,7 +140,7 @@ end
 
 class ParameterMap < SparseArray
   attr_reader :name
-  attr_accessor :parameter_set_class, :midi_channel, :midi_note
+  attr_accessor :parameter_set_class, :list_entry, :box, :midi_channel, :midi_note
 
   def initialize(parent = nil, offset = 0, name = nil, &block)
     super(parent, offset, &block)

@@ -73,8 +73,10 @@ DeviceClass.new('Roland D2') do |c|
     p.offset(0x02_00_00_00, 'Patches') do |g0|
       7.times do |n0|
         g0.offset(0x01_00_00 * n0, "Patch #{n0 + 1}") do |g1|
-          # g1.trigger_channel = n0
-          g1.offset(0, 'Common') do |g2|
+          g1.list_entry = :patch
+          g1.midi_channel = n0
+          g1.offset(0, 'Patch common') do |g2|
+            g2.box = true
             g2.add_submap_of_class(PatchName)
             g2.offset(0x31) do |r|
               r.param('Bend range up', (0..12))
@@ -100,31 +102,41 @@ DeviceClass.new('Roland D2') do |c|
             end
           end
           4.times do |n1|
-            g1.offset(0x1000 + 0x200 * n1, "Tone #{n1}") do |g2|
-              g2.offset(0) do |r|
-                r.param('Tone switch', (0..1), %w[Off On])
+            g1.offset(0x1000 + 0x200 * n1, "Tone #{n1+1}") do |g2|
+              g2.list_entry = :tone
+              g2.offset(0, 'Tone') do |g3|
+                g3.box = true
+                g3.offset(0) do |r|
+                  r.param('Tone switch', (0..1), %w[Off On])
+                end
+                g3.add_submap_of_class(WaveParameter, 1)
+                g3.offset(5) do |r|
+                  r.param('Wave gain', (0..3), WAVE_GAIN)
+                  r.param('FXM switch', (0..1), %w[Off On])
+                  r.param('FXM color', (0..3))
+                  r.param('FXM depth', (0..15))
+                end
               end
-              g2.add_submap_of_class(WaveParameter, 1)
-              g2.offset(5) do |r|
-                r.param('Wave gain', (0..3), WAVE_GAIN)
-                r.param('FXM switch', (0..1), %w[Off On])
-                r.param('FXM color', (0..3))
-                r.param('FXM depth', (0..15))
-              end
-              g2.offset(0xb) do |r|
-                r.param('Velocity crossfade', (0..127))
-                r.param('Velocity range lower', (1..127))
-                r.param('Velocity range upper', (1..127))
-                r.param('Keyboard range lower', (0..127))
-                r.param('Keyboard range upper', (0..127))
-              end
-              g2.offset(0x15) do |r|
-                ['Modulation', 'Pitch bend', 'Aftertouch'].each do |modtype|
-                  4.times do |modn|
-                    r.param("#{modtype} #{modn+1} destination", (0..15), %w[Off PCH CUT RES LEV PAN L1P L2P L1F L2F L1A L2A PL1 PL2 L1R L2R])
-                    r.param("#{modtype} #{modn+1} depth", (0..127))
+              g2.offset(0, 'Control') do |g3|
+                g3.box = true
+                g3.offset(0xb) do |r|
+                  r.param('Velocity crossfade', (0..127))
+                  r.param('Velocity range lower', (1..127))
+                  r.param('Velocity range upper', (1..127))
+                  r.param('Keyboard range lower', (0..127))
+                  r.param('Keyboard range upper', (0..127))
+                end
+                g3.offset(0x15) do |r|
+                  ['Modulation', 'Pitch bend', 'Aftertouch'].each do |modtype|
+                    4.times do |modn|
+                      r.param("#{modtype} #{modn+1} destination", (0..15), %w[Off PCH CUT RES LEV PAN L1P L2P L1F L2F L1A L2A PL1 PL2 L1R L2R])
+                      r.param("#{modtype} #{modn+1} depth", (0..127))
+                    end
                   end
                 end
+              end
+              g2.offset(0x15 + 6, 'Low frequency oscillators') do |r|
+                r.box = true
                 2.times do |lfon|
                   r.param("LFO#{lfon+1} waveform", (0..7), %w[TRI SIN SAW SQR TRP S&H RND CHS])
                   r.param("LFO#{lfon+1} key sync", (0..1))
@@ -135,6 +147,9 @@ DeviceClass.new('Roland D2') do |c|
                   r.param("LFO#{lfon+1} fade time", (0..127))
                   r.param("LFO#{lfon+1} tempo sync", (0..1), %w[Off On])
                 end
+              end
+              g2.offset(0x15 + 6 + 16, 'Pitch') do |r|
+                r.box = true
                 r.param('Coarse tune', (0..96))
                 r.param('Fine tune', (0..100))
                 r.param('Random pitch depth', (0..30), RANDOM_PITCH_DEPTH)
@@ -152,7 +167,9 @@ DeviceClass.new('Roland D2') do |c|
                 end
                 r.param('Pitch LFO1 depth', (0..126))
                 r.param('Pitch LFO2 depth', (0..126))
-
+              end
+              g2.offset(0x15 + 6 + 16 + 19, '...') do |r|
+                r.box = true
                 r.param('Filter type', (0..4), FILTER_TYPE)
                 r.param('Cutoff frequency', (0..127))
                 r.param('Cutoff key follow', (0..15), KEYFOLLOW)
@@ -198,6 +215,77 @@ DeviceClass.new('Roland D2') do |c|
                 r.param('Pan LFO2 depth', (0..126))
               end
             end
+          end
+        end
+      end
+    end
+    p.offset(0x02_09_00_00, 'Rythm Set') do |g0|
+      g0.list_entry = true
+      g0.offset(0, 'Common') do |g1|
+        g1.add_submap_of_class(PatchName, 0) do |r|
+        end
+      end
+      (35..98).each do |n0|
+        note_name = %w[C C# D D# E F F# G G# A A# B][n0%12] + (n0/12).floor.to_s
+        g0.offset(0x100 * n0, "Note #{note_name}") do |g1|
+          g1.list_entry = :drum
+          g1.box = true
+          g1.midi_channel = 9
+          g1.midi_note = n0
+          g1.offset(0) do |r|
+            r.param('Tone switch', (0..1), %w[Off On])
+          end
+          g1.add_submap_of_class(WaveParameter, 1) do |r|
+          end
+          g1.offset(5) do |r|
+            r.param('Wave gain', (0..3), WAVE_GAIN)
+            r.param('Bend range', (0..12))
+            r.param('Mute group', (0..32), ['Off'] + (1..31).collect{|n| n.to_s})
+            r.param('Envelope mode', (0..1), ['No sustain', 'Sustain'])
+          end
+          g1.offset(0xc) do |r|
+            r.param('Coarse tune', (0..96))
+            r.param('Fine tune', (0..100))
+            r.param('Random pitch depth', (0..30), RANDOM_PITCH_DEPTH)
+            r.param('Pitch envelope depth', (0..24))
+            r.param('Pitch envelope velocity sens', (0..125))
+            r.param('Pitch envelope velocity time', (0..14), KEYFOLLOW2)
+            4.times do |n2|
+              r.param("Pitch envelope time #{n2}", (0..127))
+            end
+            4.times do |n2|
+              r.param("Pitch envelope level #{n2}", (0..126))
+            end
+            r.param('Filter type', (0..4), FILTER_TYPE)
+            r.param('Cutoff frequency', (0..127))
+            r.param('Resonance', (0..127))
+            r.param('Resonance velocity sens', (0..125))
+            r.param('Filter envelope depth', (0..126))
+            r.param('Filter envelope velocity sens', (0..125))
+            r.param('Filter envelope velocity time', (0..14), KEYFOLLOW2)
+            4.times do |n2|
+              r.param("Filter envelope time #{n2}", (0..127))
+            end
+            4.times do |n2|
+              r.param("Filter envelope level #{n2}", (0..127))
+            end
+            r.param('Tone level', (0..127))
+            r.param('Amp envelope velocity sens', (0..125))
+            r.param('Amp envelope velocity time', (0..14), KEYFOLLOW2)
+            4.times do |n2|
+              r.param("Amp envelope time #{n2}", (0..127))
+            end
+            3.times do |n2|
+              r.param("Amp envelope level #{n2}", (0..127))
+            end
+            r.param('Tone pan', (0..127))
+            r.param('Random pan', (0..63))
+            r.param('Alternate pan depth', (1..127))
+            r.param('MFX switch', (0..1), %w[Off On])
+          end
+          g1.offset(0x38) do |r|
+            r.param('Delay send level', (0..127))
+            r.param('Reverb send level', (0..127))
           end
         end
       end
