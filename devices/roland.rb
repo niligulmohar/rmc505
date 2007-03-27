@@ -37,6 +37,7 @@ end
 
 DeviceClass.new('PCR-A30') do |c|
   c.icon = :patch
+  c.priority = 2
   c.extend(RolandSysex)
   c.extend(TimedBulkParameters)
   c.family_code = "\x62\x01"
@@ -55,7 +56,7 @@ DeviceClass.new('PCR-A30') do |c|
            L1 L2 L3 P1 P2].each_with_index do |c, n|
           m.offset(n * 0x100, c) do |cg|
             cg.list_entry = true
-            cg.box = true
+            cg.page_entry = true
             128.times do
               cg.param('Unknown', (0..127))
             end
@@ -75,6 +76,7 @@ end
 
 DeviceClass.new('Roland D2') do |c|
   c.icon = :tone
+  c.priority = 1
   c.extend(RolandSysex)
   c.extend(RandomAccessParameters)
   c.family_code = "\x0b\x01"
@@ -119,7 +121,7 @@ DeviceClass.new('Roland D2') do |c|
           g1.list_entry = :patch
           g1.midi_channel = n0
           g1.offset(0, 'Patch common') do |g2|
-            g2.box = true
+            g2.page_entry = true
             g2.add_submap_of_class(PatchName)
             g2.offset(0x31) do |r|
               r.param('Bend range up', (0..12))
@@ -148,7 +150,7 @@ DeviceClass.new('Roland D2') do |c|
             g1.offset(0x1000 + 0x200 * n1, "Tone #{n1+1}") do |g2|
               g2.list_entry = :tone
               g2.offset(0, 'Tone') do |g3|
-                g3.box = true
+                g3.page_entry = true
                 g3.offset(0) do |r|
                   r.param('Tone switch', (0..1), %w[Off On])
                 end
@@ -161,7 +163,7 @@ DeviceClass.new('Roland D2') do |c|
                 end
               end
               g2.offset(0, 'Control') do |g3|
-                g3.box = true
+                g3.page_entry = true
                 g3.offset(0xb) do |r|
                   r.param('Velocity crossfade', (0..127))
                   r.param('Velocity range lower', (1..127))
@@ -179,7 +181,7 @@ DeviceClass.new('Roland D2') do |c|
                 end
               end
               g2.offset(0x15 + 6, 'Low frequency oscillators') do |r|
-                r.box = true
+                r.page_entry = true
                 2.times do |lfon|
                   r.param("LFO#{lfon+1} waveform", (0..7), %w[TRI SIN SAW SQR TRP S&H RND CHS])
                   r.param("LFO#{lfon+1} key sync", (0..1))
@@ -192,7 +194,7 @@ DeviceClass.new('Roland D2') do |c|
                 end
               end
               g2.offset(0x15 + 6 + 16, 'Pitch') do |r|
-                r.box = true
+                r.page_entry = true
                 r.param('Coarse tune', (0..96))
                 r.param('Fine tune', (0..100))
                 r.param('Random pitch depth', (0..30), RANDOM_PITCH_DEPTH)
@@ -212,7 +214,7 @@ DeviceClass.new('Roland D2') do |c|
                 r.param('Pitch LFO2 depth', (0..126))
               end
               g2.offset(0x15 + 6 + 16 + 19, '...') do |r|
-                r.box = true
+                r.page_entry = true
                 r.param('Filter type', (0..4), FILTER_TYPE)
                 r.param('Cutoff frequency', (0..127))
                 r.param('Cutoff key follow', (0..15), KEYFOLLOW)
@@ -264,7 +266,8 @@ DeviceClass.new('Roland D2') do |c|
     end
     p.offset(0x02_09_00_00, 'Rythm Set') do |g0|
       g0.list_entry = true
-      g0.offset(0, 'Common') do |g1|
+      g0.offset(0, 'Rythm common') do |g1|
+        g1.page_entry = true
         g1.add_submap_of_class(PatchName, 0) do |r|
         end
       end
@@ -272,7 +275,7 @@ DeviceClass.new('Roland D2') do |c|
         note_name = %w[C C# D D# E F F# G G# A A# B][n0%12] + (n0/12).floor.to_s
         g0.offset(0x100 * n0, "Note #{note_name}") do |g1|
           g1.list_entry = :drum
-          g1.box = true
+          g1.page_entry = true
           g1.midi_channel = 9
           g1.midi_note = n0
           g1.offset(0) do |r|

@@ -11,12 +11,16 @@ require 'asound'
 
 class SparseArray
   attr_accessor :elements, :submaps
+  attr_reader :parent
   def initialize(parent = nil, offset = 0)
     @parent = parent
     @offset = offset
     @elements = []
     @submaps = []
     yield self if block_given?
+  end
+  def submap_objects
+    @submaps.collect{ |r, o| o }
   end
   def [](index)
     if (index-@offset) < @elements.length
@@ -52,7 +56,10 @@ class SparseArray
     self.end - @offset
   end
   def offset(o = 0, *args, &block)
-    add_submap_of_class(self.class, o, *args, &block)
+    add_submap_of_class(self.class, o + @offset, *args, &block)
+  end
+  def offset_index
+    @offset
   end
   def add(element)
     element.offset = @offset + @elements.length
@@ -136,11 +143,30 @@ class ParameterData < SparseArray
   def set_byte(offset, value)
     self[offset].set(value)
   end
+  def entry_name
+    map = @map_parent
+    while map.list_entry.nil?
+      map = map.parent
+      return '?' if map.nil?
+    end
+    map.name
+  end
+  def name
+    if @map_parent
+      @map_parent.name
+    else
+      nil
+    end
+  end
+  def <=>(other)
+    [offset_index, name] <=> [other.offset_index, other.name]
+  end
 end
 
 class ParameterMap < SparseArray
   attr_reader :name
-  attr_accessor :parameter_set_class, :list_entry, :box, :midi_channel, :midi_note, :delay
+  attr_accessor :parameter_set_class, :list_entry, :page_entry
+  attr_accessor :midi_channel, :midi_note, :delay
 
   def initialize(parent = nil, offset = 0, name = nil, &block)
     super(parent, offset, &block)
@@ -160,7 +186,6 @@ class ParameterMap < SparseArray
   def param(*args)
     add(ByteParameter.new(*args))
   end
-
 end
 
 class PatchName < ParameterData
@@ -189,11 +214,15 @@ class DeviceClass
 
   attr_reader :name
   attr_accessor :family_code, :model_number, :version_number, :icon
+  attr_writer :priority
   def initialize(name)
     @@classes ||= {}
     @@classes[name] = self
     @name = name
     yield self
+  end
+  def priority
+    @priority || 2
   end
   def new(sysex_channel, port)
     DeviceConnection.new(self, sysex_channel, port)
@@ -274,18 +303,18 @@ class DeviceConnection
     @device_class.sysex_match?(@sysex_channel, sysex_event)
   end
   def recieve_sysex(sysex_event)
-    # if @device_class.read_data_response?(sysex_event)
-    #   recieve_data(*@device_class.parse_data_response(sysex_event))
-    #   $logger.debug("%s(%02x) --> Recieved ~%d bytes of parameters " %
-    #                   [@device_class.name,
-    #                    @sysex_channel,
-    #                    sysex_event.variable_data.length - 11])
-    # else
+    if @device_class.read_data_response?(sysex_event)
+      recieve_data(*@device_class.parse_data_response(sysex_event))
+      $logger.debug("%s(%02x) --> Recieved ~%d bytes of parameters " %
+                      [@device_class.name,
+                       @sysex_channel,
+                       sysex_event.variable_data.length - 11])
+    else
       $logger.warn("%s(%02x) --> Unrecognized sysex" % [@device_class.name,
                                                         @sysex_channel])
-    $logger.debug("%s(%02x) --> #{sysex_event.variable_data.hexdump}" % [@device_class.name,
+      $logger.debug("%s(%02x) --> #{sysex_event.variable_data.hexdump}" % [@device_class.name,
                                                                          @sysex_channel])
-    # end
+    end
   end
   def recieve_data(start, data)
   end
@@ -362,11 +391,16 @@ class MidiInterface
       $logger.debug("* <-- Identity request")
     end
 
-    # # Fake-connection:
-    # @port.event_output! do |event|
-    #   event.direct!
-    #   event.set_sysex("\xf0\x7e\x10\x06\x02\x41\x0b\x01\x03\x00\x00\x03\x00\x00\xf7")
-    # end
+    $logger.debug('Sending fake PCR-A30 response')
+    @port.event_output! do |event|
+      event.direct!
+      event.set_sysex("\xf0\x7e\x10\x06\x02\x41\x62\x01\x00\x00\x01\x01\x00\x00\xf7")
+    end
+    $logger.debug('Sending fake Roland D2 response')
+    @port.event_output! do |event|
+      event.direct!
+      event.set_sysex("\xf0\x7e\x10\x06\x02\x41\x0b\x01\x03\x00\x00\x03\x00\x00\xf7")
+    end
   end
 
   def pump
