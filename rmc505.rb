@@ -140,7 +140,7 @@ end
 
 class ParameterMap < SparseArray
   attr_reader :name
-  attr_accessor :parameter_set_class, :list_entry, :box, :midi_channel, :midi_note
+  attr_accessor :parameter_set_class, :list_entry, :box, :midi_channel, :midi_note, :delay
 
   def initialize(parent = nil, offset = 0, name = nil, &block)
     super(parent, offset, &block)
@@ -188,6 +188,7 @@ class DeviceClass
   end
 
   attr_reader :name
+  attr_accessor :family_code, :model_number, :version_number, :icon
   def initialize(name)
     @@classes ||= {}
     @@classes[name] = self
@@ -197,11 +198,24 @@ class DeviceClass
   def new(sysex_channel, port)
     DeviceConnection.new(self, sysex_channel, port)
   end
-  def identity_response_match?(sysex_event)
+  def identity_response_match?(identity_response, quiet = false)
     m, f, model, v = manufacturer_id.chr, family_code, model_number, version_number
     # $logger.debug("Comparing#{sysex_event.variable_data.hexdump}")
     # $logger.debug("       to" + "\xf0\x7e\0\x06\x02#{m}#{f}#{model}#{v}\xf7".hexdump)
-    return sysex_event.variable_data =~ /^\xf0\x7e.\x06\x02#{m}#{f}#{model}#{v}\xf7$/
+    if identity_response.variable_data =~ /^\xf0\x7e.\x06\x02#{m}#{f}#{model}....\xf7$/
+      unless quiet
+        $logger.info("%s(%02x) --> Identity response from %s" % [@name,
+                                                                 identity_response.sysex_channel,
+                                                                 identity_response.source_ids])
+        version = identity_response.variable_data[10..13]
+        unless /#{v}/ =~ version
+          $logger.warn("The device reports it is of version#{version.hexdump}, which is untested.")
+        end
+      end
+      return true
+    else
+      return false
+    end
   end
   def parameter_map(&block)
     if @parameter_map
@@ -218,9 +232,6 @@ class DeviceConnection
     @device_class = device_class
     @sysex_channel = sysex_channel
     @port = port
-    $logger.info("%s(%02x) --> Identity response from %s" % [@device_class.name,
-                                                             @sysex_channel,
-                                                             @port.ids])
     if device_class.parameter_map
       @parameter_data = device_class.parameter_map.new_data
     end
@@ -246,19 +257,35 @@ class DeviceConnection
     @device_class.name
   end
 
-  extend Forwardable
-  def_delegators :@device_class, :identity_response_match?
-
+  def identity_response_match?(identity_response)
+    if @device_class.identity_response_match?(identity_response, true) &&
+        identity_response.sysex_channel == @sysex_channel
+    then
+      $logger.info("%s(%02x) --> Duplicate identity response from %s" %
+                     [@device_class.name,
+                      @sysex_channel,
+                      identity_response.source_ids])
+      return true
+    else
+      return false
+    end
+  end
   def sysex_match?(sysex_event)
     @device_class.sysex_match?(@sysex_channel, sysex_event)
   end
   def recieve_sysex(sysex_event)
-    if @device_class.read_data_response?(sysex_event)
-      recieve_data(*@device_class.parse_data_response(sysex_event))
-    else
+    # if @device_class.read_data_response?(sysex_event)
+    #   recieve_data(*@device_class.parse_data_response(sysex_event))
+    #   $logger.debug("%s(%02x) --> Recieved ~%d bytes of parameters " %
+    #                   [@device_class.name,
+    #                    @sysex_channel,
+    #                    sysex_event.variable_data.length - 11])
+    # else
       $logger.warn("%s(%02x) --> Unrecognized sysex" % [@device_class.name,
                                                         @sysex_channel])
-    end
+    $logger.debug("%s(%02x) --> #{sysex_event.variable_data.hexdump}" % [@device_class.name,
+                                                                         @sysex_channel])
+    # end
   end
   def recieve_data(start, data)
   end
@@ -306,10 +333,15 @@ class MidiInterface
 
   def connect
     @seq.each_port do |port|
-      if port.midi? && port.read_subscribable? && port.write_subscribable?
-        $logger.debug("Connecting to #{port.client}:#{port.port}")
-        @port.connect_from(port)
-        @port.connect_to(port)
+      if port.midi? && (port.read_subscribable? || port.write_subscribable?)
+        if port.read_subscribable?
+          $logger.debug("Making subscription:  read <-- #{port.ids}")
+          @port.connect_from(port)
+        end
+        if port.write_subscribable?
+          $logger.debug("Making subscription: write --> #{port.ids}")
+          @port.connect_to(port)
+        end
       end
     end
   end
@@ -330,11 +362,11 @@ class MidiInterface
       $logger.debug("* <-- Identity request")
     end
 
-    # Fake-connection:
-    @port.event_output! do |event|
-      event.direct!
-      event.set_sysex("\xf0\x7e\x10\x06\x02\x41\x0b\x01\x03\x00\x00\x03\x00\x00\xf7")
-    end
+    # # Fake-connection:
+    # @port.event_output! do |event|
+    #   event.direct!
+    #   event.set_sysex("\xf0\x7e\x10\x06\x02\x41\x0b\x01\x03\x00\x00\x03\x00\x00\xf7")
+    # end
   end
 
   def pump
@@ -342,16 +374,21 @@ class MidiInterface
     while (event = @seq.event_input) do
       if event.sysex?
         if event.identity_response?
-          port = Snd::Seq::Port.new(@seq, event.source_info)
-          dest_port = Snd::Seq::DestinationPort.new(port, @port)
-          new_connection = DeviceClass.connection(event, dest_port)
-          if new_connection
-            @connections << new_connection
-            @new_connection_block.call(new_connection) if @new_connection_block
-          else
-            $logger.warn("#{event.source_ids} --> Unrecognized identity response (%d bytes)" %
-                         event.variable_data.length)
-            $logger.debug("      #{event.variable_data.hexdump}")
+          catch :recognized do
+            @connections.each do |connection|
+              throw :recognized if connection.identity_response_match?(event)
+            end
+            port = Snd::Seq::Port.new(@seq, event.source_info)
+            dest_port = Snd::Seq::DestinationPort.new(port, @port)
+            new_connection = DeviceClass.connection(event, dest_port)
+            if new_connection
+              @connections << new_connection
+              @new_connection_block.call(new_connection) if @new_connection_block
+            else
+              $logger.warn("#{event.source_ids} --> Unrecognized identity response (%d bytes)" %
+                             event.variable_data.length)
+              $logger.debug("      #{event.variable_data.hexdump}")
+            end
           end
         else
           catch :recognized do
@@ -367,7 +404,7 @@ class MidiInterface
           end
         end
       elsif not event.clock?
-        $logger.debug("? --> MIDI #{event.type}")
+        $logger.debug("#{event.source_ids} --> MIDI #{event}")
       end
     end
   end

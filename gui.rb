@@ -31,16 +31,8 @@ class PatchEditorPage < Qt::ListViewItem
 end
 
 class PatchEditor < Qt::Splitter
-  @@pixmaps = false
   attr_reader :stack
   def initialize(connection, *args)
-    unless @@pixmaps
-      @@pixmaps = {}
-      %w[patch tone drum].each do |name|
-        @@pixmaps[name.to_sym] = Qt::Pixmap.new("#{name}.png")
-      end
-    end
-
     super(*args)
     @list_view = KDE::ListView.new(self)
     @list_view.add_column('Page', -1)
@@ -52,7 +44,9 @@ class PatchEditor < Qt::Splitter
     @stack = Qt::WidgetStack.new(self)
 
     @connection = connection
-    build_tree(@connection.parameter_data, @list_view)
+    if @connection.parameter_data
+      build_tree(@connection.parameter_data, @list_view)
+    end
   end
 
   def build_tree(parameter_data, parent)
@@ -60,12 +54,12 @@ class PatchEditor < Qt::Splitter
       widget = PatchEditorPage.new(self, parameter_data, parent)
       widget.text = parameter_data.map_parent.name
       if parameter_data.map_parent.list_entry.kind_of?(Symbol)
-        if @@pixmaps.has_key?(parameter_data.map_parent.list_entry)
-          widget.pixmap = @@pixmaps[parameter_data.map_parent.list_entry]
+        if $pixmaps.has_key?(parameter_data.map_parent.list_entry)
+          widget.pixmap = $pixmaps[parameter_data.map_parent.list_entry]
         end
       end
       sub_parent = widget
-      unless parameter_data.elements.empty?
+      unless parameter_data.elements.empty? || parameter_data.map_parent.box
         $logger.debug('params here??')
       end
     else
@@ -111,7 +105,7 @@ end
 class LogDevice < Logger::LogDevice
   def write(message)
     super
-    $log_widget.append(message.chop)
+    $log_widget.append(message.chop.gsub('<','&lt;').gsub('>','&gt;'))
   end
 end
 
@@ -153,7 +147,7 @@ class MainWindow < KDE::MainWindow
     grid = Qt::GridLayout.new(@tab0, 1, 1)
     $log_widget = Qt::TextBrowser.new(@tab0)
     $log_widget.text_format = Qt::LogText
-    $log_widget.set_font(Qt::Font.new('lucida console, courier'))
+    $log_widget.set_font(Qt::Font.new('courier'))
     grid.add_widget($log_widget, 0, 0)
     @tabs.add_tab(@tab0, 'Log')
 
@@ -164,6 +158,9 @@ class MainWindow < KDE::MainWindow
         patch_editor = PatchEditor.new(connection, tab)
         grid.add_widget(patch_editor, 0, 0)
         @tabs.add_tab(tab, connection.name)
+        if connection.device_class.icon
+          @tabs.set_tab_icon_set(tab, $iconsets[connection.device_class.icon])
+        end
         if @tabs.current_page_index == 0
           @tabs.current_page = 1
         end
@@ -199,5 +196,12 @@ window.resize(800, 600)
 
 a.main_widget = window
 window.show
+
+$pixmaps = {}
+$iconsets = {}
+%w[patch tone drum].each do |name|
+  $pixmaps[name.to_sym] = Qt::Pixmap.new("#{name}.png")
+  $iconsets[name.to_sym] = Qt::IconSet.new($pixmaps[name.to_sym])
+end
 
 a.exec

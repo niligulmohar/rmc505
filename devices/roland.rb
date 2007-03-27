@@ -18,26 +18,69 @@ module RolandSysex
     return head + msg + tail
   end
   def sysex_match?(sysex_channel, event)
-    event.variable_data =~ /^\xf0#{manufacturer_id}#{sysex_channel.chr}\x00\x0b\x12$/
+    event.variable_data =~ /^\xf0#{manufacturer_id.chr}#{sysex_channel.chr}\x00#{family_code[0..0]}\x12/
   end
 end
+
+module RandomAccessParameters
+end
+
+module TimedBulkParameters
+end
+
+######################################################################
+#  ____   ____ ____         _    _____  ___
+# |  _ \ / ___|  _ \       / \  |___ / / _ \
+# | |_) | |   | |_) |____ / _ \   |_ \| | | |
+# |  __/| |___|  _ <_____/ ___ \ ___) | |_| |
+# |_|    \____|_| \_\   /_/   \_\____/ \___/
 
 DeviceClass.new('PCR-A30') do |c|
-  class << c
-    include RolandSysex
-    def family_code() "\x62\x01" end
-    def model_number() "\x00\x00" end
-    def version_number() "\x01\x01\x00\x00" end
+  c.icon = :patch
+  c.extend(RolandSysex)
+  c.extend(TimedBulkParameters)
+  c.family_code = "\x62\x01"
+  c.model_number = "\x00\x00"
+  c.version_number = "\x01\x01\x00\x00"
+
+  c.parameter_map do |p|
+    p.delay = 0.5
+    (1..0xf).each do |n|
+      p.offset(0, 'Memory set %X' % n) do |m|
+        m.list_entry = true
+        m.delay = 0.04
+        %w[R1 R2 R3 R4 R5 R6 R7 R8
+           S1 S2 S3 S4 S5 S6 S7 S8
+           B1 B2 B3 B4 B5 B6
+           L1 L2 L3 P1 P2].each_with_index do |c, n|
+          m.offset(n * 0x100, c) do |cg|
+            cg.list_entry = true
+            cg.box = true
+            128.times do
+              cg.param('Unknown', (0..127))
+            end
+          end
+        end
+      end
+    end
   end
 end
 
+######################################################################
+#  ____       _                 _   ____ ____
+# |  _ \ ___ | | __ _ _ __   __| | |  _ \___ \
+# | |_) / _ \| |/ _` | '_ \ / _` | | | | |__) |
+# |  _ < (_) | | (_| | | | | (_| | | |_| / __/
+# |_| \_\___/|_|\__,_|_| |_|\__,_| |____/_____|
+
 DeviceClass.new('Roland D2') do |c|
-  class << c
-    include RolandSysex
-    def family_code() "\x0b\x01" end
-    def model_number() "\x03\x00" end
-    def version_number() "\x00\x03\x00\x00" end
-  end
+  c.icon = :tone
+  c.extend(RolandSysex)
+  c.extend(RandomAccessParameters)
+  c.family_code = "\x0b\x01"
+  c.model_number = "\x03\x00"
+  c.version_number = "\x00\x03\x00\x00"
+
   KEYFOLLOW = %w[-100 -70 -50 -30 -10 0 +10 +20 +30 +40 +50 +70 +100 +120 +150 +200]
   KEYFOLLOW2 = %w[-100 -70 -50 -40 -30 -20 -10 0 +10 +20 +30 +40 +50 +70 +100]
   WAVE_GAIN = %w[-6 0 +6 +12]
