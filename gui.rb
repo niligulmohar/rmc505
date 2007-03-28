@@ -2,6 +2,68 @@ require 'set'
 
 ######################################################################
 
+module ParameterWidget
+  def self.included(cls)
+    cls.slots 'set(int)'
+  end
+  def parameter_initialize(data)
+    @data = data
+    data.add_observer(self)
+    signal_connection
+  end
+  def set(val)
+    @data.set(val)
+  end
+end
+
+class ParameterSlider < Qt::Slider
+  include ParameterWidget
+  def initialize(data, parent)
+    super(data.parameter.range.first,
+          data.parameter.range.last,
+          1,
+          data.value, Qt::Slider::Horizontal, parent)
+    parameter_initialize(data)
+  end
+  def update()
+    self.value = @data.value
+  end
+  def signal_connection
+    connect(self, SIGNAL('valueChanged(int)'),
+            self, SLOT('set(int)'))
+  end
+end
+
+class ParameterCombo < Qt::ComboBox
+  include ParameterWidget
+  def initialize(data, parent)
+    super(parent)
+    parameter_initialize(data)
+  end
+  def update()
+    set_current_item(@data.value)
+  end
+  def signal_connection
+    connect(self, SIGNAL('activated(int)'),
+            self, SLOT('set(int)'))
+  end
+end
+
+class ParameterListBox < Qt::ComboBox
+  include ParameterWidget
+  def initialize(data, parent)
+    super(parent)
+    parameter_initialize(data)
+  end
+  def update(val)
+    set_current_item(val)
+  end
+  def signal_connection
+    connect(self, SIGNAL('activated(int)'),
+            self, SLOT('set(int)'))
+  end
+end
+
 class ParameterWidgets
   def initialize(page, parameter_data_list)
     page.add_widget do |parent|
@@ -12,20 +74,26 @@ class ParameterWidgets
       parameter = data.parameter
       if (parameter_data_list.length == 1) || !parameter.choices
         page.add_widget do |parent|
-          @slider = Qt::Slider.new(parameter.range.first, parameter.range.last, 1, data.value, Qt::Slider::Horizontal, parent)
+          @slider = ParameterSlider.new(data, parent)
         end
         @slider.tick_interval = 1
         @slider.tickmarks = Qt::Slider::Below
         @slider.value = data.value
-        #connect(@slider, SIGNAL('valueChanged(int)'), self, SLOT('change(int)'))
+        # @slider.connect(@slider, SIGNAL('valueChanged(int)'),
+        #                 data, SLOT('set(int)'))
+        # @slider.connect(data, SIGNAL('changed(int)'),
+        #                 @slider, SLOT('setValue(int)'))
       end
       if parameter.choices
         page.add_widget do |parent|
-          @combo = Qt::ComboBox.new(parent)
+          @combo = ParameterCombo.new(data, parent)
         end
         @combo.insert_string_list(parameter.choices)
         @combo.set_current_item(data.value)
-        #connect(@combo, SIGNAL('activated(int)'), @slider, SLOT('setValue(int)'))
+        # @combo.connect(@combo, SIGNAL('activated(int)'),
+        #                data, SLOT('set(int)'))
+        # @combo.connect(data, SIGNAL('changed(int)'),
+        #                @combo, SLOT('setValue(int)'))
       end
     end
     page.new_line
@@ -91,6 +159,25 @@ class PatchEditorPage < Qt::ListViewItem
     super(parent)
     @data = data
     @editor = editor
+
+    # TODO: Det här är D2-specifikt. Det ska flyttas. Det är fult också.
+    case data.map_parent.list_entry
+    when :patch
+      @name_data = @data.submaps[0][1].submaps[0][1]
+    when :tone
+      @name_data = @data.submaps[0][1].submaps[1][1]
+      @switch = @data.submaps[0][1].submaps[0][1].elements[0]
+    when :drum
+      @name_data = @data.submaps[0][1].submaps[1][1]
+      @switch = @data.submaps[0][1].submaps[0][1].elements[0]
+    end
+    if @name_data
+      @name_data.add_observer(self)
+      if @switch
+        @switch.add_observer(self)
+      end
+      update
+    end
   end
   def list_entry
     @data.map_parent.list_entry
@@ -113,6 +200,14 @@ class PatchEditorPage < Qt::ListViewItem
       @page_widget = @editor.page_widget_for([@data])
     end
     return @page_widget
+  end
+  def update
+    text = (if @switch.nil? || @switch.value != 0
+              @name_data.map_parent.value(@name_data)
+            else
+              ''
+            end)
+    set_text(1, text)
   end
 end
 
@@ -148,7 +243,7 @@ class PatchEditor < Qt::Splitter
     set_sizes
   end
   def set_sizes
-    self.sizes = [200, 600]
+    self.sizes = [200, 500]
   end
   def selectionChanged
     if @temp_widget
@@ -204,7 +299,7 @@ class PatchEditor < Qt::Splitter
     return page_widget
   end
   def build_page(parameter_data_list, page, captions = true)
-    if captions && parameter_data_list.length > 1
+    if captions # && parameter_data_list.length > 1
       page.add_widget do |parent|
         Qt::Widget.new(parent)
       end
@@ -235,7 +330,7 @@ class PatchEditor < Qt::Splitter
       end
       parameter_data_list.each do |p|
         page.add_widget do |parent|
-          p.map_parent.widget(parent)
+          p.map_parent.widget(p, parent)
         end
       end
       page.new_line
@@ -323,30 +418,33 @@ end
 
 ######################################################################
 
-about = KDE::AboutData.new('rmc505',
-                           'Rmc505',
-                           '0.1.0',
-                           'A Roland MC505/D2 patch editor',
-                           KDE::AboutData::License_GPL,
-                           '(C) 2006-2007 Nicklas Lindgren')
-about.add_author('Nicklas Lindgren',
-                 'Programmer',
-                 'nili@lysator.liu.se')
+def run_gui
+  about = KDE::AboutData.new('rmc505',
+                             'Rmc505',
+                             '0.1.0',
+                             'A Roland MC505/D2 patch editor',
+                             KDE::AboutData::License_GPL,
+                             '(C) 2006-2007 Nicklas Lindgren')
+  about.add_author('Nicklas Lindgren',
+                   'Programmer',
+                   'nili@lysator.liu.se')
 
-KDE::CmdLineArgs.init(ARGV, about)
-a = KDE::Application.new()
+  KDE::CmdLineArgs.init(ARGV, about)
+  a = KDE::Application.new()
 
-window = MainWindow.new('Rmc505')
-window.resize(800, 600)
+  window = MainWindow.new('Rmc505')
+  window.resize(1000, 700)
 
-a.main_widget = window
-window.show
+  a.main_widget = window
+  window.show
 
-$pixmaps = {}
-$iconsets = {}
-%w[patch tone drum].each do |name|
-  $pixmaps[name.to_sym] = Qt::Pixmap.new("#{name}.png")
-  $iconsets[name.to_sym] = Qt::IconSet.new($pixmaps[name.to_sym])
+  $pixmaps = {}
+  $iconsets = {}
+  %w[patch tone drum].each do |name_str|
+    name = name_str.to_sym
+    $pixmaps[name] = Qt::Pixmap.new("#{name}.png")
+    $iconsets[name] = Qt::IconSet.new($pixmaps[name])
+  end
+
+  a.exec
 end
-
-a.exec

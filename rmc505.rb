@@ -3,6 +3,7 @@
 require 'logger'
 require 'forwardable'
 require 'yaml'
+require 'observer'
 require 'Korundum'
 $: << File.join(File.dirname(__FILE__), 'asound')
 require 'asound'
@@ -56,7 +57,7 @@ class SparseArray
     self.end - @offset
   end
   def offset(o = 0, *args, &block)
-    add_submap_of_class(self.class, o + @offset, *args, &block)
+    add_submap_of_class(self.class, o, *args, &block)
   end
   def offset_index
     @offset
@@ -67,7 +68,7 @@ class SparseArray
     check_overlap!
   end
   def add_submap_of_class(cls, offset = 0, *args)
-    submap = cls.new(self, offset, *args)
+    submap = cls.new(self, offset + @offset, *args)
     yield submap if block_given?
     @submaps.push([(offset ... offset+submap.length), submap])
     check_overlap!
@@ -106,7 +107,18 @@ class ByteParameter
   end
 end
 
+module Observable
+  alias_method :old_notify_observers, :notify_observers
+  def notify_observers(*args)
+    # Observers may be Qt widgets that have been manually disposed.
+    # Notifying them will cause segmentation faults.
+    @observer_peers.reject!{ |peer| peer.disposed? } if @observer_peers
+    old_notify_observers(*args)
+  end
+end
+
 class ParameterStorage
+  include Observable
   attr_reader :parameter, :value
   def initialize(parameter)
     fail unless parameter.kind_of?(ByteParameter)
@@ -114,12 +126,15 @@ class ParameterStorage
     @value = @parameter.default
   end
   def set(value)
-    unless @range.member?(value)
+    return if value == @value
+    unless parameter.range.member?(value)
       dump
-      $logger.error("Parameter value #{value} out of range")
+      $logger.error("Parameter #{parameter.name} value #{value} out of range")
     end
     @value = value
     dump
+    changed
+    notify_observers()
   end
   def dump(indentataion = 0)
     @parameter.dump(indentataion, @value)
@@ -127,6 +142,7 @@ class ParameterStorage
 end
 
 class ParameterData < SparseArray
+  include Observable
   attr_accessor :map_parent
   def dump(indentation = 0)
     if @map_parent and @map_parent.name
@@ -161,6 +177,11 @@ class ParameterData < SparseArray
   end
   def <=>(other)
     [offset_index, name] <=> [other.offset_index, other.name]
+  end
+  def update_elements_and_notify
+    yield @elements
+    changed
+    notify_observers
   end
 end
 
@@ -319,6 +340,7 @@ end
 
 ######################################################################
 
+require 'gui'
 require 'devices'
 
 ######################################################################
@@ -454,4 +476,4 @@ def initialize_app(logdevice_class)
   $midi.identity_request!
 end
 
-require 'gui'
+run_gui

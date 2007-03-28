@@ -76,6 +76,32 @@ end
 # |  _ < (_) | | (_| | | | | (_| | | |_| / __/
 # |_| \_\___/|_|\__,_|_| |_|\__,_| |____/_____|
 
+class PatchLineEdit < Qt::LineEdit
+  slots 'set()'
+  def initialize(patch_name, parent)
+    super(parent)
+    @patch_name = patch_name
+    connect(self, SIGNAL('textChanged(const QString &)'),
+            self, SLOT('set()'))
+    @patch_name.add_observer(self)
+    update
+  end
+  def update
+    return if @disable_update
+    set_text(@patch_name.map_parent.value(@patch_name))
+  end
+  def set
+    @disable_update = true
+    @patch_name.update_elements_and_notify do |parameters|
+      padded_text = '%-12s' % text
+      padded_text.split('').each_with_index do |char, index|
+        parameters[index].set(char[0])
+      end
+    end
+    @disable_update = false
+  end
+end
+
 class PatchName < ParameterMap
   def initialize(*args)
     super
@@ -83,16 +109,56 @@ class PatchName < ParameterMap
       param("Patch name #{n+1}", (32..125))
     end
   end
+  def value(data)
+    data.elements.collect{ |p| p.value.chr }.join.strip
+  end
   def special_widget?
     true
   end
   def label
     'Patch name'
   end
-  def widget(parent)
-    @lineedit = Qt::LineEdit.new(parent)
+  def widget(data, parent)
+    @lineedit = PatchLineEdit.new(data, parent)
     @lineedit.max_length = 12
     return @lineedit
+  end
+end
+
+class WaveListBox < Qt::ListBox
+  slots 'set(int)'
+  def initialize(wave, names, parent)
+    super(parent)
+    @wave = wave
+    connect(self, SIGNAL('highlighted(int)'),
+            self, SLOT('set(int)'))
+    insert_string_list(names)
+    @wave.add_observer(self)
+    update
+  end
+  def update
+    num = @wave.map_parent.number(@wave)
+    block_signals(true)
+    set_selected(num, true)
+    block_signals(false)
+    self.top_item = [0, num - 4].max
+  end
+  def set(wave)
+    @wave.update_elements_and_notify do |parameters|
+      if wave > 253
+        gid = 2
+        num = wave - 254
+      else
+        gid = 1
+        num = wave
+      end
+      high = num >> 4
+      low = num & 0xf
+      parameters[0].set(0)
+      parameters[1].set(gid)
+      parameters[2].set(high)
+      parameters[3].set(low)
+    end
   end
 end
 
@@ -604,8 +670,11 @@ class WaveParameter < ParameterMap
     "Roll Kick"]
 
   WAVES =
-    (0..253).collect{ |n| '1-%d %s' % [n+1, WAVENAMES[n]] } +
-    (0..250).collect{ |n| '2-%d %s ' % [n+1, WAVENAMES[n+254]] }
+    (0..253).collect{ |n| "1-#{n+1} #{WAVENAMES[n]}" } +
+    (0..250).collect{ |n| "2-#{n+1} #{WAVENAMES[n+254]}" }
+  SHORT_WAVES =
+    (0..253).collect{ |n| WAVENAMES[n] } +
+    (0..250).collect{ |n| WAVENAMES[n+254] }
 
   def initialize(*args)
     super
@@ -614,15 +683,26 @@ class WaveParameter < ParameterMap
     param('Wave number (high nibble)', (0..15))
     param('Wave number (low nibble)', (0..15))
   end
+  def number(data)
+    num = (if data.elements[1].value == 2
+             254
+           else
+             0
+           end)
+    num += data.elements[2].value << 4
+    num += data.elements[3].value
+  end
+  def value(data)
+    SHORT_WAVES[number(data)]
+  end
   def special_widget?
     true
   end
   def label
     'Wave name'
   end
-  def widget(parent)
-    @list = Qt::ListBox.new(parent)
-    @list.insert_string_list(WAVES)
+  def widget(data, parent)
+    @list = WaveListBox.new(data, WAVES, parent)
     return @list
   end
 end
