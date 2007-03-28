@@ -56,9 +56,11 @@ DeviceClass.new('PCR-A30') do |c|
            L1 L2 L3 P1 P2].each_with_index do |c, n|
           m.offset(n * 0x100, c) do |cg|
             cg.list_entry = true
-            cg.page_entry = true
-            128.times do
-              cg.param('Unknown', (0..127))
+            cg.offset(0, 'Unknown') do |r|
+              r.page_entry = true
+              128.times do
+                r.param('Unknown', (0..127))
+              end
             end
           end
         end
@@ -73,6 +75,557 @@ end
 # | |_) / _ \| |/ _` | '_ \ / _` | | | | |__) |
 # |  _ < (_) | | (_| | | | | (_| | | |_| / __/
 # |_| \_\___/|_|\__,_|_| |_|\__,_| |____/_____|
+
+class PatchName < ParameterMap
+  def initialize(*args)
+    super
+    12.times do |n|
+      param("Patch name #{n+1}", (32..125))
+    end
+  end
+  def special_widget?
+    true
+  end
+  def label
+    'Patch name'
+  end
+  def widget(parent)
+    @lineedit = Qt::LineEdit.new(parent)
+    @lineedit.max_length = 12
+    return @lineedit
+  end
+end
+
+class WaveParameter < ParameterMap
+  WAVENAMES = ["TB Dst Saw",
+    "TB Dst Sqr 1",
+    "TB Dst Sqr 2",
+    "TB Reso Sqr 1",
+    "TB Reso Sqr 2",
+    "TB Saw",
+    "TB Solid Saw 1",
+    "TB Solid Saw 2",
+    "TB Square 1",
+    "TB Square 2",
+    "TB Sqr Decay",
+    "TB Natural",
+    "JP8000 Saw 1",
+    "JP8000 Saw 2",
+    "MG Saw",
+    "Synth Saw 1",
+    "JP-8 Saw",
+    "P5 Saw",
+    "Synth Saw 2",
+    "OB Saw",
+    "D-50 Saw",
+    "JP-6 Square",
+    "MG Square",
+    "P5 Square",
+    "JP-8 Pulse",
+    "JP-6 Pulse",
+    "MG Pulse",
+    "260 Pulse",
+    "JU-2 Sub OSC",
+    "Frog wave",
+    "Digiwave",
+    "FM Pulse",
+    "JP8000 PWM",
+    "JP8000 FBK",
+    "260 Sub OSC",
+    "Dist Synth",
+    "Dist Square",
+    "MG Triangle",
+    "Jungle Bass",
+    "260 Sine Bs",
+    "MC-202 Bass",
+    "SH-101 Bass",
+    "Octa Bass",
+    "Funky Bass",
+    "Poly Bass",
+    "MG Bass",
+    "FM Super Bass",
+    "Solid Bass",
+    "Organ Bass",
+    "Dirty Bass",
+    "Upright Bass",
+    "Ac Bass",
+    "Voco Bass",
+    "Fingered Bass",
+    "Pick Bass",
+    "Fretless Bass",
+    "Slap Bass",
+    "Juno Rave",
+    "Blaster",
+    "Fat JP-6",
+    "OB Strings",
+    "Orch Strings",
+    "Pizzy Techno",
+    "Choir",
+    "Syn Vox 1",
+    "Syn Vox 2",
+    "Syn Vox 3",
+    "Ac Piano",
+    "D-50 EP",
+    "E Piano",
+    "Clavi",
+    "Full Stop",
+    "FM Club Org",
+    "E Organ 1",
+    "E Organ 2",
+    "Church Org",
+    "Power B fst",
+    "Power B slw",
+    "Org Chord",
+    "Tabular",
+    "Glockenspiel",
+    "Vibraphone",
+    "FantabellSub",
+    "DIGI Bell",
+    "Steel Drum",
+    "Marimba",
+    "Balaphone",
+    "Kalimba",
+    "Steel Gtr",
+    "Clean TC",
+    "Dst Solo Gtr",
+    "Dist Tek Gtr",
+    "Gtr FX",
+    "Harmo Gtr",
+    "Wah Gtr 1",
+    "Wah Gtr 2",
+    "Wah Gtr 2a",
+    "Wah Gtr 2b",
+    "Wah Gtr 2c",
+    "Wah Gtr 2d",
+    "Sitar",
+    "Brass",
+    "Trumpet",
+    "Mute Trumpet",
+    "Soprano Sax",
+    "Solo Sax",
+    "Baritone Sax",
+    "Brass Fall",
+    "Flute",
+    "Pan Flute",
+    "Shakunichi",
+    "Bagpipe",
+    "Breath",
+    "FeedbackWave",
+    "Atmosphere",
+    "Reso Noise",
+    "MG White Nz",
+    "P5 Noise",
+    "MG Pink Nz",
+    "Bomb Noise",
+    "Sea",
+    "Brush Noise",
+    "Space Noise",
+    "Scream",
+    "Jet Plane",
+    "Toy Gun 1",
+    "Crash",
+    "Toy Gun 2",
+    "Toy Gun 3",
+    "Emergency",
+    "Buzzer",
+    "Insect",
+    "Tonality",
+    "Ring OSC",
+    "Reso FX",
+    "Scratch Menu",
+    "Vinyl Noise",
+    "Scratch BD f",
+    "Scratch BD r",
+    "Scratch SD f",
+    "Scratch SD r",
+    "Scratch Alt",
+    "Tape Rewind",
+    "Vinyl Stop",
+    "Hit Menu",
+    "MG Blip",
+    "Beam HiQ",
+    "MG Attack",
+    "Air Blip",
+    "Org Click",
+    "Syn Hit",
+    "Techno Scene",
+    "Techno Chord",
+    "Dist Hit",
+    "Thin Beef",
+    "Tekno Hit",
+    "Back Hit",
+    "TAO Hit",
+    "Phily Hit",
+    "INDUST MENU",
+    "Analog Bird",
+    "Retro UFO",
+    "PC-2 Machine",
+    "Hoo",
+    "Metal Sweep",
+    "Afro Feet",
+    "Bomb",
+    "Bounce",
+    "Electric Dunk",
+    "Iron Door",
+    "Dist Swish",
+    "Drill Hit",
+    "Thrill",
+    "PCM Press",
+    "Air Gun",
+    "Voice Menu",
+    "One!",
+    "Two!",
+    "Three!",
+    "Kick it!",
+    "Come on!",
+    "Wao!",
+    "Shout",
+    "Ooh! 1",
+    "Ooh! 2",
+    "Voice Loop",
+    "Pa!",
+    "Canvas",
+    "Punch",
+    "Chiki!",
+    "Hey!",
+    "Laugh",
+    "Aah Formant",
+    "Eeh Formant",
+    "Iih Formant",
+    "Ooh Formant",
+    "Uuh Formant",
+    "Dist Ooh Vox",
+    "Auh Voice",
+    "Stream",
+    "Bird",
+    "Tom Menu",
+    "TR909 Tom",
+    "TR909 DstTom",
+    "TR808 Tom",
+    "TR606 Tom",
+    "TR606 CmpTom",
+    "TR707 Tom",
+    "Syn Tom",
+    "Deep Tom",
+    "Can Tom",
+    "Kick Tom",
+    "Natural Tom",
+    "PERCUS MENU1",
+    "PERCUS MENU2",
+    "TR808 Conga",
+    "HiBongo Open",
+    "LoBongo Open",
+    "HiConga Mute",
+    "HiConga Open",
+    "LoConga Open",
+    "HiBongo LoFi",
+    "LoBongo Lofi",
+    "HiConga Mt LF",
+    "HiConga Op LF",
+    "Loconga LoFi",
+    "Timpani",
+    "Mute Surdo",
+    "Open Surdo",
+    "Hi Timbale",
+    "Lo Timbale",
+    "Hi Timbale LF",
+    "Lo Timbale LF",
+    "Tabla",
+    "TablaBaya",
+    "Udo",
+    "AfroDrum Rat",
+    "ChenChen",
+    "Op Pandeiro",
+    "Mt Pandeiro",
+    "Tambourine 1",
+    "Tambourine 2",
+    "Tambourine 3",
+    "Tambourine 4",
+    "CR78 Tamb",
+    "Cowbell MENU",
+    "TR808Cowbell",
+    "TR707Cowbell",
+    "CR78Cowbell",
+    "Cowbell",
+    "TR727 Agogo",
+    "CR78 Beat",
+    "Triangle 1",
+    "Triangle 2",
+    "SHKR+ Menu",
+    "808 Maracas",
+    "Maracas",
+    "Cabasa Up",
+    "TechnoShaker",
+    "TR626Shaker",
+    "DanceShaker",
+    "CR78 Guiro",
+    "Long Guiro",
+    "Short Guiro",
+    "Mute Cuica",
+    "Open Cuica",
+    "Whistle",
+    "TR727Quijada",
+    "Jingle Bell",
+    "Belltree",
+    "Wind Chime",
+    "RIM MENU",
+    "TR909 RIM",
+    "TR808 RIM",
+    "TR808 RimLng",
+    "TR707 Rim",
+    "Analog Rim",
+    "Natural Rim",
+    "Ragga Rim 1",
+    "Lo-Fi Rim",
+    "Wood Block",
+    "Jungle Snap",
+    "TR808 Claves",
+    "Hyoshigi",
+    "CHH MENU 1",
+    "CHH MENU 2",
+    "TR909 CHH 1",
+    "TR909 CHH 2",
+    "TR808 CHH 1",
+    "TR808 CHH 2",
+    "TR808 CHH 3",
+    "TR606 CHH 1",
+    "TR606 CHH 2",
+    "TR606 DstCHH",
+    "TR707 CHH",
+    "CR78 CHH",
+    "DR55 CHH 1",
+    "Closed Hat",
+    "Pop CHH",
+    "Real CHH",
+    "Bristol CHH",
+    "DR550 CHH2",
+    "Tight CHH",
+    "Hip CHH",
+    "Room CHH",
+    "R8 Brush CHH",
+    "Jungle Hat",
+    "PHH MENU",
+    "TR909 PHH 1",
+    "TR909 PHH 2",
+    "TR808 PHH 1",
+    "TR808 PHH 2",
+    "TR606 PHH 1",
+    "TR606 PHH 2",
+    "TR707 PHH",
+    "HIP PHH",
+    "Tight PHH",
+    "Pedal Hat 1",
+    "Real PHH",
+    "Pedal Hat 2",
+    "OHH MENU 1",
+    "OHH MENU 2",
+    "TR909 OHH 1",
+    "TR909 OHH 2",
+    "TR909 OHH 3",
+    "TR909 DstOHH",
+    "TR808 OHH 1",
+    "TR808 OHH 2",
+    "TR606 OHH",
+    "TR606 DstOHH",
+    "TR707 OHH",
+    "CR78 OHH",
+    "HIP OHH",
+    "Pop Hat Open",
+    "Open Hat",
+    "Cym OHH",
+    "DR550 OHH",
+    "Funk OHH",
+    "Real OHH",
+    "R8 OHH",
+    "Cymbal MENU",
+    "TR606 Cym 1",
+    "TR606 Cym 2",
+    "TR909 Ride",
+    "TR707 Ride",
+    "Natural Ride",
+    "Cup Cym",
+    "TR909 Crash",
+    "Natural Crash",
+    "Jungle Crash",
+    "Asian Gong",
+    "CLAP MENU1",
+    "CLAP MENU2",
+    "TR909 Clap 1",
+    "TR909 Clap 2",
+    "TR808 Clap",
+    "TR707 Clap",
+    "Cheap Clap",
+    "Funk Clap",
+    "Little Clap",
+    "Real Clap 1",
+    "Real Clap 2",
+    "Funky Clap",
+    "Comp Clap",
+    "Hip Clap",
+    "Down Clap",
+    "Group Clap",
+    "Big Clap",
+    "ClapTail",
+    "Clap Snare 1",
+    "Fuzzy Clap",
+    "Snap",
+    "Finger Snap",
+    "SNR MENU 1",
+    "SNR MENU 2",
+    "SNR MENU 3",
+    "SNR MENU 4",
+    "SNR MENU 5",
+    "SNR MENU 6",
+    "TR909 Snr 1",
+    "TR909 Snr 2",
+    "TR909 Snr 3",
+    "TR909 Snr 4",
+    "TR909 Snr 5",
+    "TR909 Snr 6",
+    "TR909 Snr 7",
+    "TR909 DstSnr",
+    "TR808 Snr 1",
+    "TR808 Snr 2",
+    "TR808 Snr 3",
+    "TR808 Snr 4",
+    "TR808 Snr 5",
+    "TR808 Snr 6",
+    "TR808 Snr 7",
+    "TR808 Snr 8",
+    "TR808 Snr 9",
+    "TR606 Snr 1",
+    "TR606 Snr 2",
+    "TR606 Snr 3",
+    "DanceHall SD",
+    "TR707 Snare",
+    "CR78 Snare",
+    "Clap Snare 2",
+    "Jungle Tiny SD",
+    "Jazz Snare",
+    "Headz Snare",
+    "Whack Snare",
+    "Rap Snare",
+    "Jungle Snr 1",
+    "Antigua Snr",
+    "Real Snr",
+    "Tiny Snare 1",
+    "Tiny Snare 2",
+    "Break Snare 1",
+    "Break Snare 2",
+    "MC Snare",
+    "East Snare",
+    "Phat Snare",
+    "Brush Slap 1",
+    "Brush Slap 2",
+    "Deep Snare",
+    "Fat Snare",
+    "Disco Snare",
+    "Dj Snare",
+    "Macho Snare",
+    "Hash Snare",
+    "Lo-Hard Snr",
+    "Indus Snare",
+    "Rage Snare",
+    "TekRok Snare",
+    "Big Trash SD",
+    "Ragga Rim 2",
+    "Gate Rim",
+    "Sidestiker",
+    "HipJazz Snr",
+    "HH Soul Snr",
+    "Cross Snr",
+    "Jungle Rim 1",
+    "Ragg Snr 2",
+    "Upper Snare",
+    "Lo-Fi Snare",
+    "Ragga Tight SD",
+    "Flange Snr",
+    "Machine Snr",
+    "Clap Snare 3",
+    "Solid Snare",
+    "Funk Clap 2",
+    "Jungle Rim 2",
+    "Jungle Rim 3",
+    "Jungle Snr 2",
+    "Urban Snare",
+    "Urban RollSD",
+    "R&B Snare",
+    "R8 Brush Tap",
+    "R8 BrshSwill",
+    "R8 BrushRoll",
+    "Sim Snare",
+    "Electro Snr 1",
+    "Electro Snr 2",
+    "Synth Snr",
+    "Roll Snare",
+    "Kick MENU 1",
+    "KICK MENU 2",
+    "KICK MENU 3",
+    "TR909 Kick 1",
+    "TR909 Kick 2",
+    "TR909 Kick 3",
+    "TR909 Kick 4",
+    "Plastic BD 1",
+    "Plastic BD 2",
+    "Plastic BD 3",
+    "Plastic BD 4",
+    "TR909 Kick 5",
+    "TR808 Kick 1",
+    "TR808 Kick 2",
+    "TR808 Kick 3",
+    "TR808 Kick 4",
+    "TR808 Kick 5",
+    "TR606 Kick",
+    "TR606 Dst BD",
+    "TR707 Kick 1",
+    "TR707 Kick 2",
+    "Toy Kick",
+    "Analog Kick",
+    "Boost Kick",
+    "West Kick",
+    "Jungle Kick 1",
+    "Optic Kick",
+    "Wet Kick",
+    "Lo-Fi Kick",
+    "Hazy Kick",
+    "Hip Kick",
+    "Video Kick",
+    "Tight Kick",
+    "Break Kick",
+    "Turbo Kick",
+    "Ele Kick",
+    "Dance Kick 1",
+    "Kick Ghost",
+    "Lo-Fi Kick 2",
+    "Jungle Kick 2",
+    "TR909 Dst BD",
+    "Amsterdam BD",
+    "Gabba Kick",
+    "Roll Kick"]
+
+  WAVES =
+    (0..253).collect{ |n| '1-%d %s' % [n+1, WAVENAMES[n]] } +
+    (0..250).collect{ |n| '2-%d %s ' % [n+1, WAVENAMES[n+254]] }
+
+  def initialize(*args)
+    super
+    param('Wave group type', (0..0))
+    param('Wave group ID', (1..2))
+    param('Wave number (high nibble)', (0..15))
+    param('Wave number (low nibble)', (0..15))
+  end
+  def special_widget?
+    true
+  end
+  def label
+    'Wave name'
+  end
+  def widget(parent)
+    @list = Qt::ListBox.new(parent)
+    @list.insert_string_list(WAVES)
+    return @list
+  end
+end
 
 DeviceClass.new('Roland D2') do |c|
   c.icon = :tone
@@ -180,7 +733,7 @@ DeviceClass.new('Roland D2') do |c|
                   end
                 end
               end
-              g2.offset(0x15 + 6, 'Low frequency oscillators') do |r|
+              g2.offset(0x2d, 'Low frequency oscillators') do |r|
                 r.page_entry = true
                 2.times do |lfon|
                   r.param("LFO#{lfon+1} waveform", (0..7), %w[TRI SIN SAW SQR TRP S&H RND CHS])
@@ -193,7 +746,7 @@ DeviceClass.new('Roland D2') do |c|
                   r.param("LFO#{lfon+1} tempo sync", (0..1), %w[Off On])
                 end
               end
-              g2.offset(0x15 + 6 + 16, 'Pitch') do |r|
+              g2.offset(0x3d, 'Pitch') do |r|
                 r.page_entry = true
                 r.param('Coarse tune', (0..96))
                 r.param('Fine tune', (0..100))
@@ -213,7 +766,7 @@ DeviceClass.new('Roland D2') do |c|
                 r.param('Pitch LFO1 depth', (0..126))
                 r.param('Pitch LFO2 depth', (0..126))
               end
-              g2.offset(0x15 + 6 + 16 + 19, '...') do |r|
+              g2.offset(0x50, 'Filter') do |r|
                 r.page_entry = true
                 r.param('Filter type', (0..4), FILTER_TYPE)
                 r.param('Cutoff frequency', (0..127))
@@ -234,7 +787,9 @@ DeviceClass.new('Roland D2') do |c|
                 end
                 r.param('Filter LFO1 depth', (0..126))
                 r.param('Filter LFO2 depth', (0..126))
-
+              end
+              g2.offset(0x65, 'Amplification') do |r|
+                r.page_entry = true
                 r.param('Tone level', (0..127))
                 r.param('Bias direction', (0..3), %w[Lower Upper Low&Up All])
                 r.param('Bias point', (0..127))
@@ -273,23 +828,26 @@ DeviceClass.new('Roland D2') do |c|
       end
       (35..98).each do |n0|
         note_name = %w[C C# D D# E F F# G G# A A# B][n0%12] + (n0/12).floor.to_s
-        g0.offset(0x100 * n0, "Note #{note_name}") do |g1|
-          g1.list_entry = :drum
-          g1.page_entry = true
-          g1.midi_channel = 9
-          g1.midi_note = n0
-          g1.offset(0) do |r|
-            r.param('Tone switch', (0..1), %w[Off On])
+        g0.offset(0x100 * n0, "Note #{note_name}") do |g2|
+          g2.list_entry = :drum
+          g2.midi_channel = 9
+          g2.midi_note = n0
+          g2.offset(0, 'Tone') do |g1|
+            g1.page_entry = true
+            g1.offset(0) do |r|
+              r.param('Tone switch', (0..1), %w[Off On])
+            end
+            g1.add_submap_of_class(WaveParameter, 1) do |r|
+            end
+            g1.offset(5) do |r|
+              r.param('Wave gain', (0..3), WAVE_GAIN)
+              r.param('Bend range', (0..12))
+              r.param('Mute group', (0..32), ['Off'] + (1..31).collect{|n| n.to_s})
+              r.param('Envelope mode', (0..1), ['No sustain', 'Sustain'])
+            end
           end
-          g1.add_submap_of_class(WaveParameter, 1) do |r|
-          end
-          g1.offset(5) do |r|
-            r.param('Wave gain', (0..3), WAVE_GAIN)
-            r.param('Bend range', (0..12))
-            r.param('Mute group', (0..32), ['Off'] + (1..31).collect{|n| n.to_s})
-            r.param('Envelope mode', (0..1), ['No sustain', 'Sustain'])
-          end
-          g1.offset(0xc) do |r|
+          g2.offset(0xc, 'Pitch') do |r|
+            r.page_entry = true
             r.param('Coarse tune', (0..96))
             r.param('Fine tune', (0..100))
             r.param('Random pitch depth', (0..30), RANDOM_PITCH_DEPTH)
@@ -302,6 +860,9 @@ DeviceClass.new('Roland D2') do |c|
             4.times do |n2|
               r.param("Pitch envelope level #{n2}", (0..126))
             end
+          end
+          g2.offset(0x1a, 'Filter') do |r|
+            r.page_entry = true
             r.param('Filter type', (0..4), FILTER_TYPE)
             r.param('Cutoff frequency', (0..127))
             r.param('Resonance', (0..127))
@@ -315,6 +876,9 @@ DeviceClass.new('Roland D2') do |c|
             4.times do |n2|
               r.param("Filter envelope level #{n2}", (0..127))
             end
+          end
+          g2.offset(0x29, 'Amplification') do |r|
+            r.page_entry = true
             r.param('Tone level', (0..127))
             r.param('Amp envelope velocity sens', (0..125))
             r.param('Amp envelope velocity time', (0..14), KEYFOLLOW2)
@@ -327,11 +891,14 @@ DeviceClass.new('Roland D2') do |c|
             r.param('Tone pan', (0..127))
             r.param('Random pan', (0..63))
             r.param('Alternate pan depth', (1..127))
-            r.param('MFX switch', (0..1), %w[Off On])
           end
-          g1.offset(0x38) do |r|
-            r.param('Delay send level', (0..127))
-            r.param('Reverb send level', (0..127))
+          g2.offset(0x36, 'Output') do |g1|
+            g1.page_entry = true
+            g1.param('MFX switch', (0..1), %w[Off On])
+            g1.offset(0x2) do |r|
+              r.param('Delay send level', (0..127))
+              r.param('Reverb send level', (0..127))
+            end
           end
         end
       end

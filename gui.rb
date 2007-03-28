@@ -3,30 +3,32 @@ require 'set'
 ######################################################################
 
 class ParameterWidgets
-  def initialize(parent_param, parameter_data_list)
-    @label = Qt::Label.new(parameter_data_list[0].parameter.name, parent_param)
-    if parameter_data_list.length == 1
-      parent = Qt::HBox.new(parent_param)
-    else
-      parent = parent_param
+  def initialize(page, parameter_data_list)
+    page.add_widget do |parent|
+      @label = Qt::Label.new(parameter_data_list[0].parameter.name, parent)
     end
 
     parameter_data_list.each do |data|
       parameter = data.parameter
       if (parameter_data_list.length == 1) || !parameter.choices
-        @slider = Qt::Slider.new(parameter.range.first, parameter.range.last, 1, data.value, Qt::Slider::Horizontal, parent)
+        page.add_widget do |parent|
+          @slider = Qt::Slider.new(parameter.range.first, parameter.range.last, 1, data.value, Qt::Slider::Horizontal, parent)
+        end
         @slider.tick_interval = 1
         @slider.tickmarks = Qt::Slider::Below
         @slider.value = data.value
         #connect(@slider, SIGNAL('valueChanged(int)'), self, SLOT('change(int)'))
       end
       if parameter.choices
-        @combo = Qt::ComboBox.new(parent)
+        page.add_widget do |parent|
+          @combo = Qt::ComboBox.new(parent)
+        end
         @combo.insert_string_list(parameter.choices)
         @combo.set_current_item(data.value)
         #connect(@combo, SIGNAL('activated(int)'), @slider, SLOT('setValue(int)'))
       end
     end
+    page.new_line
   end
 end
 
@@ -39,6 +41,25 @@ class GroupScrollView < Qt::ScrollView
     connect(self, SIGNAL('contentsMoving(int, int)'),
             self, SLOT('contentsMoving(int, int)'))
     @new_state = :new
+    @vbox = Qt::Widget.new(self)
+    add_child(@vbox)
+    @grid = Qt::GridLayout.new(@vbox)
+    self.resize_policy = Qt::ScrollView::AutoOneFit
+    set_margins(5,5,5,5)
+    @current_x = 0
+    @current_y = 0
+  end
+  def add_widget(width = 1)
+    widget = yield @vbox
+    @grid.add_multi_cell_widget(widget, @current_y, @current_y, @current_x, @current_x + width - 1)
+    @current_x += 1
+  end
+  def new_line
+    @grid.set_row_stretch(@current_y, 0)
+    @current_x = 0
+    @current_y += 2
+    @grid.set_row_spacing(@current_y - 1, 3)
+    @grid.set_row_stretch(@current_y, 1)
   end
   def scroll
     unless @new_state
@@ -179,40 +200,57 @@ class PatchEditor < Qt::Splitter
   def page_widget_for(parameter_data_list)
     entry_type = parameter_data_list.first.map_parent.list_entry
     page_widget = GroupScrollView.new(@stack, self, entry_type)
-    vbox = Qt::VBox.new(page_widget)
-    page_widget.add_child(vbox)
-    page_widget.resize_policy = Qt::ScrollView::AutoOneFit
-    page_widget.set_margins(5,5,5,5)
-    build_page(parameter_data_list, vbox, nil)
+    build_page(parameter_data_list, page_widget)
     return page_widget
   end
-  def build_page(parameter_data_list, vbox, group_param)
-    parameter_data = parameter_data_list.first
-    if parameter_data.map_parent && parameter_data.map_parent.page_entry
-      group = Qt::GroupBox.new(parameter_data_list.length + 1,
-                               Qt::GroupBox::Horizontal,
-                               vbox)
-      group.title = parameter_data.map_parent.name
-      if parameter_data_list.length > 1
-        Qt::Widget.new(group)
-        parameter_data_list.each do |p|
-          Qt::Label.new(p.entry_name, group)
+  def build_page(parameter_data_list, page, captions = true)
+    if captions && parameter_data_list.length > 1
+      page.add_widget do |parent|
+        Qt::Widget.new(parent)
+      end
+      parameter_data_list.each do |p|
+        page.add_widget do |parent|
+          Qt::Label.new("<b>#{p.entry_name}</b>", parent)
         end
       end
-    else
-      group = group_param
+      page.new_line
     end
 
-    element_arrays = parameter_data_list.map{ |pd| pd.elements }
-    element_arrays[0].zip(*element_arrays[1..-1]) do |elements|
-      ParameterWidgets.new(group, elements)
+    parameter_data = parameter_data_list.first
+    width = (if parameter_data_list.length == 1
+               3
+             else
+               parameter_data_list.length + 1
+             end)
+    if parameter_data.map_parent && parameter_data.map_parent.page_entry
+      page.add_widget(width) do |parent|
+        Qt::Label.new("<h2>#{parameter_data.map_parent.name}</h2>", parent)
+      end
+      page.new_line
+    end
+
+    if parameter_data.map_parent.special_widget?
+      page.add_widget do |parent|
+        Qt::Label.new(parameter_data.map_parent.label, parent)
+      end
+      parameter_data_list.each do |p|
+        page.add_widget do |parent|
+          p.map_parent.widget(parent)
+        end
+      end
+      page.new_line
+    else
+      element_arrays = parameter_data_list.map{ |pd| pd.elements }
+      element_arrays[0].zip(*element_arrays[1..-1]) do |elements|
+        ParameterWidgets.new(page, elements)
+      end
     end
 
     unless parameter_data.submaps.empty?
       submap_arrays = parameter_data_list.map{ |pd| pd.submap_objects }
       submap_arrays[0].zip(*submap_arrays[1..-1]) do |submaps|
         unless submaps[0].map_parent && submaps[0].map_parent.list_entry
-          build_page(submaps, vbox, group)
+          build_page(submaps, page, false)
         end
       end
     end

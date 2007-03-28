@@ -145,6 +145,7 @@ class ParameterData < SparseArray
   end
   def entry_name
     map = @map_parent
+    return '?' if map.nil?
     while map.list_entry.nil?
       map = map.parent
       return '?' if map.nil?
@@ -182,18 +183,14 @@ class ParameterMap < SparseArray
       ParameterStorage.new(parameter)
     end
   end
+  def special_widget?
+    false
+  end
 
   def param(*args)
     add(ByteParameter.new(*args))
   end
 end
-
-class PatchName < ParameterData
-end
-
-class WaveParameter < ParameterData
-end
-
 
 ######################################################################
 
