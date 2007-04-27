@@ -119,8 +119,16 @@ class GroupScrollView < Qt::ScrollView
   end
   def add_widget(width = 1)
     widget = yield @vbox
-    @grid.add_multi_cell_widget(widget, @current_y, @current_y, @current_x, @current_x + width - 1)
+    @grid.add_multi_cell_widget(widget,
+                                @current_y, @current_y,
+                                @current_x, @current_x + width - 1)
     @current_x += 1
+    if @current_x == 1
+      if @current_y == 2
+        @grid.set_col_spacing(@current_x, 3)
+      end
+      @current_x = 2
+    end
   end
   def new_line
     @grid.set_row_stretch(@current_y, 0)
@@ -162,7 +170,7 @@ class PatchEditorPage < Qt::ListViewItem
 
     # TODO: Det här är D2-specifikt. Det ska flyttas. Det är fult också.
     case data.map_parent.list_entry
-    when :patch
+    when :patch, :rythm_set
       @name_data = @data.submaps[0][1].submaps[0][1]
     when :tone
       @name_data = @data.submaps[0][1].submaps[1][1]
@@ -268,9 +276,9 @@ class PatchEditor < Qt::Splitter
         @stack.raise_widget(@empty_widget)
       end
     end
-    # @editor.stack.raise_widget(page_widget)
-    # @editor.set_sizes
-    # $logger.debug('foo')
+    @selected_set.each do |page|
+      @connection.auto_read_data_request(*page.data.start_and_length)
+    end
   end
   def build_tree(parameter_data, parent)
     if parameter_data.map_parent && parameter_data.map_parent.list_entry
