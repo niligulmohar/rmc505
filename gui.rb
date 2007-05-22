@@ -3,6 +3,7 @@ require 'set'
 ######################################################################
 
 module ParameterWidget
+  attr_accessor :editor
   def self.included(cls)
     cls.slots 'set(int)'
   end
@@ -10,9 +11,18 @@ module ParameterWidget
     @data = data
     data.add_observer(self)
     signal_connection
+    @send_data = true
   end
   def set(val)
     @data.set(val)
+    if @send_data
+      @editor.connection.auto_write_data_request(@data.parameter.offset, 1)
+    end
+  end
+  def without_sending_data
+    @send_data = false
+    yield
+    @send_data = true
   end
 end
 
@@ -26,7 +36,7 @@ class ParameterSlider < Qt::Slider
     parameter_initialize(data)
   end
   def update()
-    self.value = @data.value
+    without_sending_data{ self.value = @data.value }
   end
   def signal_connection
     connect(self, SIGNAL('valueChanged(int)'),
@@ -65,7 +75,7 @@ class ParameterListBox < Qt::ComboBox
 end
 
 class ParameterWidgets
-  def initialize(page, parameter_data_list)
+  def initialize(page, parameter_data_list, editor)
     page.add_widget do |parent|
       @label = Qt::Label.new(parameter_data_list[0].parameter.name, parent)
     end
@@ -76,6 +86,7 @@ class ParameterWidgets
         page.add_widget do |parent|
           @slider = ParameterSlider.new(data, parent)
         end
+        @slider.editor = editor
         @slider.tick_interval = 1
         @slider.tickmarks = Qt::Slider::Below
         @slider.value = data.value
@@ -88,6 +99,7 @@ class ParameterWidgets
         page.add_widget do |parent|
           @combo = ParameterCombo.new(data, parent)
         end
+        @combo.editor = editor
         @combo.insert_string_list(parameter.choices)
         @combo.set_current_item(data.value)
         # @combo.connect(@combo, SIGNAL('activated(int)'),
@@ -169,7 +181,7 @@ class PatchEditorPage < Qt::ListViewItem
     @editor = editor
 
     # TODO: Det här är syntspecifikt. Det ska flyttas. Det är fult också.
-    
+
     case @editor.connection.device_class.name
     when 'Roland D2'
       case data.map_parent.list_entry
@@ -254,10 +266,12 @@ class PatchEditor < Qt::Splitter
       build_tree(@connection.parameter_data, @list_view)
     end
 
-    @selected_set = Set.new
     @scroll_positions = {}
 
     set_sizes
+    @list_view.first_child.selected = true
+    @selected_set = Set.new([@list_view.first_child])
+    selectionChanged
   end
   def set_sizes
     self.sizes = [200, 500]
@@ -347,14 +361,14 @@ class PatchEditor < Qt::Splitter
       end
       parameter_data_list.each do |p|
         page.add_widget do |parent|
-          p.map_parent.widget(p, parent)
+          p.map_parent.widget(p, parent, self)
         end
       end
       page.new_line
     else
       element_arrays = parameter_data_list.map{ |pd| pd.elements }
       element_arrays[0].zip(*element_arrays[1..-1]) do |elements|
-        ParameterWidgets.new(page, elements)
+        ParameterWidgets.new(page, elements, self)
       end
     end
 

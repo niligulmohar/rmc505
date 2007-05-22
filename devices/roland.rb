@@ -63,10 +63,11 @@ module AlphaJunoSysex
       event.variable_data =~ /^\xf0#{m.chr}[\x35\x36]#{@sysex_channel.chr}\x23\x20\x01/
     end
     def write_data_request(start, data)
+      m = RolandSysex::MANUFACTURER_ID
       if data.length == 1
-        #IPR
+        "\xf0#{m.chr}\x36#{@sysex_channel.chr}\x23\x20\x01#{start.chr}#{data}\xf7"
       elsif start == 0 and data.length == 46
-        #APR
+        "\xf0#{m.chr}\x35#{@sysex_channel.chr}\x23\x20\x01#{start.chr}#{data}\xf7"
       else
         fail "Write request won't fit either an APR or an IPR"
       end
@@ -142,6 +143,7 @@ end
 #         |_|
 
 class AlphaJunoToneLineEdit < Qt::LineEdit
+  include ParameterWidget
   slots 'set()'
   def initialize(tone_name, parent)
     super(parent)
@@ -158,11 +160,12 @@ class AlphaJunoToneLineEdit < Qt::LineEdit
   def set
     @disable_update = true
     @tone_name.update_elements_and_notify do |parameters|
-      padded_text = '%-12s' % text
+      padded_text = '%-10s' % text
       padded_text.split('').each_with_index do |char, index|
-        #parameters[index].set(char[0])
+        parameters[index].set(AlphaJunoToneName::CHARACTERS.index(char[0]) || 63)
       end
     end
+    @editor.connection.auto_write_data_request(0, 46) if @editor
     @disable_update = false
   end
 end
@@ -184,9 +187,10 @@ class AlphaJunoToneName < ParameterMap
   def label
     'Tone name'
   end
-  def widget(data, parent)
+  def widget(data, parent, editor)
     @lineedit = AlphaJunoToneLineEdit.new(data, parent)
     @lineedit.max_length = 10
+    @lineedit.editor = editor
     return @lineedit
   end
 end
@@ -259,6 +263,7 @@ end
 # |_| \_\___/|_|\__,_|_| |_|\__,_| |____/_____|
 
 class PatchLineEdit < Qt::LineEdit
+  include ParameterWidget
   slots 'set()'
   def initialize(patch_name, parent)
     super(parent)
@@ -280,6 +285,7 @@ class PatchLineEdit < Qt::LineEdit
         parameters[index].set(char[0])
       end
     end
+    @editor.connection.auto_write_data_request(@patch_name.offset, 12) if @editor
     @disable_update = false
   end
 end
@@ -300,14 +306,16 @@ class PatchName < ParameterMap
   def label
     'Patch name'
   end
-  def widget(data, parent)
+  def widget(data, parent, editor)
     @lineedit = PatchLineEdit.new(data, parent)
     @lineedit.max_length = 12
+    @lineedit.editor = editor
     return @lineedit
   end
 end
 
 class WaveListBox < Qt::ListBox
+  include ParameterWidget
   slots 'set(int)'
   def initialize(wave, names, parent)
     super(parent)
@@ -883,8 +891,9 @@ class WaveParameter < ParameterMap
   def label
     'Wave name'
   end
-  def widget(data, parent)
+  def widget(data, parent, editor)
     @list = WaveListBox.new(data, WAVES, parent)
+    @list.editor = editor
     return @list
   end
 end

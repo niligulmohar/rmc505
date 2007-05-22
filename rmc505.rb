@@ -96,6 +96,11 @@ class MidiInterface
     #   event.direct!
     #   event.set_sysex("\xf0\x7e\x10\x06\x02\x41\x0b\x01\x03\x00\x00\x03\x00\x00\xf7")
     # end
+    # $logger.debug('Sending fake Alpha Juno 2 parameter')
+    # @port.event_output! do |event|
+    #   event.direct!
+    #   event.set_sysex("\xf0\x41\x35\x01\x23\x20\x01\xf7")
+    # end
   end
 
   def pump

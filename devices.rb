@@ -81,6 +81,33 @@ class SparseArray
     end
     return result
   end
+  def each_element_group
+    yield [@offset, @elements] if @elements.length > 0
+    submap_objects.each do |s|
+      s.each_element_group{ |o, elts| yield [o + @offset, elts] }
+    end
+  end
+  def each_contiguous_element_group(start, length)
+    accumulated = nil
+    each_element_group do |offset, elements|
+      start_offset = [0, start-offset].max
+      end_offset = [0, (start+length)-offset].max
+      append = elements[start_offset...end_offset]
+      if append.length > 0
+        if accumulated
+          if accumulated.first + accumulated.last.length == offset + start_offset
+            accumulated[1] += append
+          else
+            yield accumulated
+            accumulated = [start_offset, append]
+          end
+        else
+          accumulated = [start_offset, append]
+        end
+      end
+    end
+    yield accumulated if accumulated
+  end
 end
 
 class ByteParameter
@@ -295,7 +322,7 @@ class DeviceConnection
     @port = port
     if device_class.parameter_map
       @parameter_data = device_class.parameter_map.new_data
-      @parameter_data.dump if @device_class.name =~ /Juno/
+      # @parameter_data.dump if @device_class.name =~ /Juno/
     end
   end
   def log_format(format, *args)
@@ -308,15 +335,14 @@ class DeviceConnection
       event.set_sysex(data)
     end
   end
-  def send_read_data_request(start, length, delay = 0)
+  def send_read_data_request(start, length)
     send_sysex(read_data_request(start, length))
-    # TODO: Implement with an alsa sequencer queue instead
-    sleep(delay)
   end
-  def send_write_data_request(start, data, delay = 0)
-    send_sysex(write_data_request(start, length))
-    # TODO: As above
-    sleep(delay)
+  def send_write_data_request(start, length)
+    $logger.debug(log_format("<-- auto send parameters"))
+    @parameter_data.each_contiguous_element_group(start, length) do |s, elts|
+      send_sysex(write_data_request(s, elts.collect{ |elt| elt.value.chr }.join))
+    end
   end
 
   def name
