@@ -168,16 +168,25 @@ class PatchEditorPage < Qt::ListViewItem
     @data = data
     @editor = editor
 
-    # TODO: Det här är D2-specifikt. Det ska flyttas. Det är fult också.
-    case data.map_parent.list_entry
-    when :patch, :rythm_set
-      @name_data = @data.submaps[0][1].submaps[0][1]
-    when :tone
-      @name_data = @data.submaps[0][1].submaps[1][1]
-      @switch = @data.submaps[0][1].submaps[0][1].elements[0]
-    when :drum
-      @name_data = @data.submaps[0][1].submaps[1][1]
-      @switch = @data.submaps[0][1].submaps[0][1].elements[0]
+    # TODO: Det här är syntspecifikt. Det ska flyttas. Det är fult också.
+    
+    case @editor.connection.device_class.name
+    when 'Roland D2'
+      case data.map_parent.list_entry
+      when :patch, :rythm_set
+        @name_data = @data.submaps[0][1].submaps[0][1]
+      when :tone
+        @name_data = @data.submaps[0][1].submaps[1][1]
+        @switch = @data.submaps[0][1].submaps[0][1].elements[0]
+      when :drum
+        @name_data = @data.submaps[0][1].submaps[1][1]
+        @switch = @data.submaps[0][1].submaps[0][1].elements[0]
+      end
+    when 'Alpha Juno'
+      case data.map_parent.list_entry
+      when :tone
+        @name_data = @data.submaps[0][1].submaps[0][1]
+      end
     end
     if @name_data
       @name_data.add_observer(self)

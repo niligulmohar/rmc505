@@ -1,4 +1,5 @@
 module RolandSysex
+  MANUFACTURER_ID = 0x41
   def manufacturer_id() 0x41 end
   def self.checksum(data)
     sum = 0
@@ -6,6 +7,11 @@ module RolandSysex
     return 128 - sum % 128
   end
   module ConnectionMethods
+    def specific_sysex_match?(event)
+      m = @device_class.manufacturer_id
+      f = @device_class.family_code[0..0]
+      event.variable_data =~ /^\xf0#{m.chr}#{@sysex_channel.chr}\x00#{f}./
+    end
     def read_data_request(start, length)
       head = "\xf0\x41#{@sysex_channel.chr}\x00\x0b\x11"
       msg = [start, length].pack('NN')
@@ -37,11 +43,50 @@ module RolandSysex
     end
     alias_method :parse_read_data_response, :parse_write_data_request
     alias_method :read_data_response?, :write_data_request?
-    def sysex_match?(event)
-      m = @device_class.manufacturer_id
-      f = @device_class.family_code[0..0]
-      event.variable_data =~ /^\xf0#{m.chr}#{@sysex_channel.chr}\x00#{f}./
+  end
+end
+
+module AlphaJunoSysex
+  include RolandSysex
+  def sysex_match_channel(event)
+    m = RolandSysex::MANUFACTURER_ID
+    match = event.variable_data.match(/^\xf0#{m.chr}[\x35\x36](.)\x23\x20\x01/)
+    return (if match
+              match[1][0]
+            else
+              nil
+            end)
+  end
+  module ConnectionMethods
+    def specific_sysex_match?(event)
+      m = RolandSysex::MANUFACTURER_ID
+      event.variable_data =~ /^\xf0#{m.chr}[\x35\x36]#{@sysex_channel.chr}\x23\x20\x01/
     end
+    def write_data_request(start, data)
+      if data.length == 1
+        #IPR
+      elsif start == 0 and data.length == 46
+        #APR
+      else
+        fail "Write request won't fit either an APR or an IPR"
+      end
+      
+    end
+    def write_data_request?(sysex_data)
+      true
+    end
+    def parse_write_data_request(sysex_data)
+      case sysex_data[2]
+      when 0x35
+        return [0, sysex_data[7...(7+46)]]
+      when 0x36
+        return [sysex_data[7], sysex_data[8..8]]
+      else
+        fail
+      end
+    end
+    alias_method :parse_read_data_response, :parse_write_data_request
+    alias_method :read_data_response?, :write_data_request?
   end
 end
 
@@ -89,6 +134,124 @@ DeviceClass.new('PCR-A30') do |c|
 end
 
 ######################################################################
+#        _       _                 _
+#   __ _| |_ __ | |__   __ _      | |_   _ _ __   ___
+#  / _` | | '_ \| '_ \ / _` |  _  | | | | | '_ \ / _ \
+# | (_| | | |_) | | | | (_| | | |_| | |_| | | | | (_) |
+#  \__,_|_| .__/|_| |_|\__,_|  \___/ \__,_|_| |_|\___/
+#         |_|
+
+class AlphaJunoToneLineEdit < Qt::LineEdit
+  slots 'set()'
+  def initialize(tone_name, parent)
+    super(parent)
+    @tone_name = tone_name
+    connect(self, SIGNAL('textChanged(const QString &)'),
+            self, SLOT('set()'))
+    @tone_name.elements.each{ |e| e.add_observer(self) }
+    update
+  end
+  def update
+    return if @disable_update
+    set_text(@tone_name.map_parent.value(@tone_name))
+  end
+  def set
+    @disable_update = true
+    @tone_name.update_elements_and_notify do |parameters|
+      padded_text = '%-12s' % text
+      padded_text.split('').each_with_index do |char, index|
+        #parameters[index].set(char[0])
+      end
+    end
+    @disable_update = false
+  end
+end
+
+class AlphaJunoToneName < ParameterMap
+  CHARACTERS = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789 -"
+  def initialize(*args)
+    super
+    10.times do |n|
+      param("Tone name #{n+1}", (0..63))
+    end
+  end
+  def value(data)
+    data.elements.collect{ |p| CHARACTERS[p.value..p.value] }.join.strip
+  end
+  def special_widget?
+    true
+  end
+  def label
+    'Tone name'
+  end
+  def widget(data, parent)
+    @lineedit = AlphaJunoToneLineEdit.new(data, parent)
+    @lineedit.max_length = 10
+    return @lineedit
+  end
+end
+
+DeviceClass.new('Alpha Juno') do |c|
+  c.icon = :patch
+  c.priority = 1
+  c.extend(AlphaJunoSysex)
+  c.connection_methods << AlphaJunoSysex::ConnectionMethods
+  c.connection_methods << PushedParameters
+  c.parameter_map do |p|
+    p.offset(0, 'Tone') do |g0|
+      g0.list_entry = :tone
+      g0.offset(0, 'Parameters') do |g|
+        g.page_entry = true
+        g.param('DCO Env Mode', (0..3), ([ 'Env normal',
+                                           'Env inverted',
+                                           'Env normal with velocity',
+                                           'Env inverted with velocity' ]))
+        g.param('VCF Env Mode', (0..3), ([ 'Env normal',
+                                           'Env inverted',
+                                           'Env normal with velocity',
+                                           'Velocity' ]))
+        g.param('VCA Env Mode', (0..3), ([ 'Env',
+                                           'Gate',
+                                           'Env with velocity',
+                                           'Gate with velocity' ]))
+        g.param('DCO Waveform Pulse', (0..3))
+        g.param('DCO Waveform Sawtooth', (0..5))
+        g.param('DCO Waveform Sub', (0..5))
+        g.param('DCO Range', (0..3), %w[4' 8' 16' 32'])
+        g.param('DCO Sub Level', (0..3))
+        g.param('DCO Noise Level', (0..3))
+        g.param('HPF Cutoff Freq', (0..3))
+        g.param('Chorus', (0..1), %w[Off On])
+        g.param('DCO LFO Mod Depth', (0..127))
+        g.param('DCO Env Mod Depth', (0..127))
+        g.param('DCO After Depth', (0..127))
+        g.param('DCO PW/PWM Depth', (0..127))
+        g.param('DCO PWM Rate', (0..127))
+        g.param('VCF Cutoff Freq', (0..127))
+        g.param('VCF Resonance', (0..127))
+        g.param('VCF LFO Mod Depth', (0..127))
+        g.param('VCF Env Mod Depth', (0..127))
+        g.param('VCF Key Follow', (0..127))
+        g.param('VCF After Depth', (0..127))
+        g.param('VCA Level', (0..127))
+        g.param('VCA After Depth', (0..127))
+        g.param('LFO Rate', (0..127))
+        g.param('LFO Delay Time', (0..127))
+        (1..4).each do |n|
+          g.param("Env T#{n}", (0..127))
+          g.param("Env L#{n}", (0..127)) unless n == 4
+        end
+        g.param('Env Key Follow', (0..127))
+        g.param('Chorus Rate', (0..127))
+        g.param('Bender Range', (0..12))
+        g.add_submap_of_class(AlphaJunoToneName, 36)
+      end
+    end
+  end
+end
+
+
+######################################################################
 #  ____       _                 _   ____ ____
 # |  _ \ ___ | | __ _ _ __   __| | |  _ \___ \
 # | |_) / _ \| |/ _` | '_ \ / _` | | | | |__) |
@@ -102,7 +265,7 @@ class PatchLineEdit < Qt::LineEdit
     @patch_name = patch_name
     connect(self, SIGNAL('textChanged(const QString &)'),
             self, SLOT('set()'))
-    @patch_name.add_observer(self)
+    @patch_name.elements.each{ |e| e.add_observer(self) }
     update
   end
   def update

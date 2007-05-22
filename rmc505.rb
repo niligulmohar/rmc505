@@ -25,6 +25,12 @@ class String
   end
 end
 
+class Snd::Seq::Event
+  def v_link_off?
+    sysex? and variable_data =~ /^\xf0\x41.\x00\x51\x12\x10\x00\x00\x00.\xf7$/
+  end
+end
+
 ######################################################################
 
 class MidiInterface
@@ -80,49 +86,53 @@ class MidiInterface
       $logger.debug("* <-- Identity request")
     end
 
-    $logger.debug('Sending fake PCR-A30 response')
-    @port.event_output! do |event|
-      event.direct!
-      event.set_sysex("\xf0\x7e\x10\x06\x02\x41\x62\x01\x00\x00\x01\x01\x00\x00\xf7")
-    end
-    $logger.debug('Sending fake Roland D2 response')
-    @port.event_output! do |event|
-      event.direct!
-      event.set_sysex("\xf0\x7e\x10\x06\x02\x41\x0b\x01\x03\x00\x00\x03\x00\x00\xf7")
-    end
+    # $logger.debug('Sending fake PCR-A30 response')
+    # @port.event_output! do |event|
+    #   event.direct!
+    #   event.set_sysex("\xf0\x7e\x10\x06\x02\x41\x62\x01\x00\x00\x01\x01\x00\x00\xf7")
+    # end
+    # $logger.debug('Sending fake Roland D2 response')
+    # @port.event_output! do |event|
+    #   event.direct!
+    #   event.set_sysex("\xf0\x7e\x10\x06\x02\x41\x0b\x01\x03\x00\x00\x03\x00\x00\xf7")
+    # end
   end
 
   def pump
     event = nil
     while (event = @seq.event_input) do
       if event.sysex?
-        if event.identity_response?
-          catch :recognized do
-            @connections.each do |connection|
-              throw :recognized if connection.identity_response_match?(event)
-            end
-            port = Snd::Seq::Port.new(@seq, event.source_info)
-            dest_port = Snd::Seq::DestinationPort.new(port, @port)
-            new_connection = DeviceClass.connection(event, dest_port)
-            if new_connection
-              @connections << new_connection
-              @new_connection_block.call(new_connection) if @new_connection_block
-            else
-              $logger.warn("#{event.source_ids} --> Unrecognized identity response (%d bytes)" %
-                             event.variable_data.length)
-              $logger.debug("      #{event.variable_data.hexdump}")
+        if event.v_link_off?
+          # When this kind of message comes from a PCR-A30, it means
+          # that its midi-out port has started working as an usb midi
+          # interface. This is a good time to send another identity
+          # request.
+          identity_request!
+        end
+        catch :recognized do
+          @connections.each do |connection|
+            if connection.sysex_match?(event)
+              connection.recieve_sysex(event)
+              throw :recognized
             end
           end
-        else
-          catch :recognized do
-            @connections.each do |conn|
-              if conn.sysex_match?(event)
-                conn.recieve_sysex(event)
-                throw :recognized
-              end
-            end
-            $logger.warn("#{event.source_ids} --> Unrecognized sysex (%d bytes)" %
-                         event.variable_data.length)
+          port = Snd::Seq::Port.new(@seq, event.source_info)
+          dest_port = Snd::Seq::DestinationPort.new(port, @port)
+          new_connection = DeviceClass.connection(event, dest_port)
+          if new_connection
+            @connections << new_connection
+            @new_connection_block.call(new_connection) if @new_connection_block
+            new_connection.recieve_sysex(event)
+          elsif event.identity_request?
+            $logger.warn("#{event.source_ids} --> Identity request recieved")
+          elsif !event.v_link_off?
+            $logger.warn("#{event.source_ids} --> Unrecognized %s (%d bytes):" %
+                           [if event.identity_response?
+                              'identity response'
+                            else
+                              'sysex'
+                            end,
+                             event.variable_data.length])
             $logger.debug("      #{event.variable_data.hexdump}")
           end
         end

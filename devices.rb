@@ -39,7 +39,7 @@ class SparseArray
     end
   end
   def unmapped_element(index)
-    fail
+    fail "Address #{index} is unmapped"
   end
   def end
     (@submaps.collect{ |r, o| r.last } + [@offset + @elements.length]).max
@@ -214,10 +214,20 @@ class DeviceClass
     def [](name)
       @@classes[name]
     end
-    def connection(identity_response, port)
+    def connection(sysex, port)
       @@classes.values.each do |cls|
-        if cls.identity_response_match?(identity_response)
-          return cls.new(identity_response.sysex_channel, port)
+        if sysex.identity_response?
+          match = cls.identity_response_match?(sysex) and channel = sysex.sysex_channel
+        else
+          if cls.respond_to?(:sysex_match_channel)
+            channel = cls.sysex_match_channel(sysex)
+            match = !!channel
+          else
+            match = false
+          end
+        end
+        if match
+          return cls.new(channel, port)
         end
       end
       return nil
@@ -285,6 +295,7 @@ class DeviceConnection
     @port = port
     if device_class.parameter_map
       @parameter_data = device_class.parameter_map.new_data
+      @parameter_data.dump if @device_class.name =~ /Juno/
     end
   end
   def log_format(format, *args)
@@ -313,6 +324,14 @@ class DeviceConnection
     @device_class.name
   end
 
+  def sysex_match?(sysex)
+    if sysex.identity_response?
+      identity_response_match?(sysex)
+    else
+      respond_to?(:specific_sysex_match?) and specific_sysex_match?(sysex)
+    end
+  end
+
   def identity_response_match?(identity_response)
     if @device_class.identity_response_match?(identity_response, true) &&
         identity_response.sysex_channel == @sysex_channel
@@ -326,17 +345,17 @@ class DeviceConnection
   end
   def recieve_sysex(sysex_event)
     if read_data_response?(sysex_event.variable_data)
-      recieve_data(*@device_class.parse_read_data_response(sysex_event.variable_data))
+      recieve_data(*parse_read_data_response(sysex_event.variable_data))
       $logger.debug(log_format("--> Recieved ~%d bytes of parameters",
                                sysex_event.variable_data.length - 11))
-    else
-      $logger.warn(log_format("--> Unrecognized sysex"))
+    elsif not sysex_event.identity_response?
+      $logger.warn(log_format("--> Unrecognized sysex:"))
       $logger.debug(log_format("-->#{sysex_event.variable_data.hexdump}"))
     end
   end
   def recieve_data(start, data)
     data.split('').each_with_index do |byte, index|
-      @parameter_data[start+index] = byte
+      @parameter_data[start+index] = byte[0]
     end
   end
 end
@@ -346,6 +365,14 @@ end
 module RandomAccessParameters
   def auto_read_data_request(*args)
     send_read_data_request(*args)
+  end
+  def auto_write_data_request(*args)
+    send_write_data_request(*args)
+  end
+end
+
+module PushedParameters
+  def auto_read_data_request(*args)
   end
   def auto_write_data_request(*args)
     send_write_data_request(*args)
